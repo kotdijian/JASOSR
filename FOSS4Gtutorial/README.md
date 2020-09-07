@@ -28,6 +28,7 @@
 #### GitHubリポジトリ
 - チュートリアルで使用するデータ、スライドはGitHubリポジトリで公開しています  
 
+- スライド: https://kotdijian.github.io/JASOSR//FOSS4Gtutorial **(未完)**  
 - リポジトリ上のリソース1: https://github.com/kotdijian/JASOSR/tree/master/FOSS4Gtutorial  
     - README.md: 本ドキュメントです  
     - slide.md: オンライン・チュートリアルのスライドです  
