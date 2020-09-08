@@ -238,7 +238,7 @@
  
 #### 実習の内容・データについて
 - 資料・内容はCC-BYで公開します。複製、再利用、転載、改変は可能ですが、かならず出典を表記してください  
-> 表記例: 野口　淳(2020) FOSS4G Japan 2020 Onlineチュートリアル「オンラインリソースによる考古遺跡地図作成」(https://github.com/kotdijian/JASOSR/tree/master/ FOSS4Gtutorial)  
+> 表記例: 野口　淳(2020) FOSS4G Japan 2020 Onlineチュートリアル「オンラインリソースによる考古遺跡地図作成」(https://github.com/kotdijian/JASOSR/tree/master/FOSS4Gtutorial)  
 - 実習で使用するサンプルデータのオリジナルは[こちら](https://github.com/kotdijian/JASOSR/tree/master/13Tokyo)にあります。詳細はREADME.mdを参照してください  
 > 表記例: JASOSR東京都遺跡データ(https://github.com/kotdijian/JASOSR/tree/master/13Tokyo)  
 
