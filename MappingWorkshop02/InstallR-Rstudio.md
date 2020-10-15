@@ -20,7 +20,7 @@ Rは、統計解析向けのプログラミング言語、実行環境です。�
 ![Rinstlation02](https://github.com/kotdijian/StayHomebutStudyWorkshop/blob/master/Rinstlation/R02.png)
 3. Windowsの場合、次の画面で「base」を選択します
 ![Rinstlation03](https://github.com/kotdijian/StayHomebutStudyWorkshop/blob/master/Rinstlation/R03.png)    
-4.2020/5/5現在、*最新バージョンは4.0.0*です
+4.2020/10/17現在、*最新バージョンは4.0.3*です
 ![Rinstlation04](https://github.com/kotdijian/StayHomebutStudyWorkshop/blob/master/Rinstlation/R04.png)
 5. Mac-OSの場合、こちらでOSのバージョンなど必要条件を確認してください
 ![Rinstlation05](https://github.com/kotdijian/StayHomebutStudyWorkshop/blob/master/Rinstlation/R05.png)
