@@ -3,10 +3,10 @@ title: "JAS_DataManagementFor13Tokyo-20201017ver"
 author: "kotdijian"
 date: "2020年10月17日"
 output:
-  pdf_document:
-       latex_engine: xelatex 
   html_document: default
   word_document: default
+  pdf_document:
+       latex_engine: xelatex 
 documentclass: bxjsarticle
 classoption: xelatex,ja=standard
 geometry: no
@@ -156,7 +156,7 @@ Rには`base`と呼ばれる基本関数があります([BaseRチートシート
 
 以下に、パッケージのチェックとインストール、アクティベートのコードを**コードチャンク**として示します。
 
-```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk0, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #パッケージチェックとインストール
 if(!require("tidyverse")) install.packages('tidyverse', repos='http://cran.us.r-project.org') 
 if(!require("rio")) install.packages('rio', repos='http://cran.us.r-project.org')  
@@ -290,7 +290,7 @@ Green Ideas](https://id.fnshr.info/2017/01/09/tidy-data-intro/))。
 
 これは[遺跡地図作成実習part1](https://github.com/kotdijian/JASOSR/tree/master/MappingWokrshop)でも取り扱ったものです。
 
-```{r chunk2, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 TokyoTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo.csv", setclass= "tbl_df", encoding = "UTF-8") # TokyoTotalに原データcsvを読み込み、エンコードの指定に注意
 
 ```
@@ -355,7 +355,7 @@ summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分
 
 フィルターを実行した結果を、あらたなオブジェクトに格納してテ保管することで、原データとフィルター後のデータセットを保持します。以下のチャンクを実行してみましょう。
 
-```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk6, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal1 <- filter(TokyoTotal,時代 == "旧石器時代")
 
@@ -364,7 +364,7 @@ nrow(TokyoPal1)
 
 結果は0件でした。フィルターの条件設定に使用した`==`は一致を意味します。TokyoTotalデータセットの**時代**列には"旧石器時代"に一致するデータは1件も含まれていないのです。原データセットを見ると、時代はで括られて表記されています。そこで次のチャンクを実行しましょう。
 
-```{r chunk7, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk7, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal1 <- filter(TokyoTotal,時代 == "[旧石器時代]")
 
@@ -381,7 +381,7 @@ nrow(TokyoPal1)
 
 次のチャンクを実行してみましょう。
 
-```{r chunk8, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk8, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal1 <- filter(TokyoTotal, str_detect(時代,"旧石器時代"))
 
@@ -400,7 +400,7 @@ nrow(TokyoPal1)
 
 先のチャンク8で、検索条件を`[旧石器時代]`ではなく`旧石器時代`としたのも、この**正規表現**が関係します。`[]`は、**含まれる文字列のどれかに一致する**を指定する正規表現なのです。したがって、チャンク8の検索条件を`[旧石器時代]`にすると次のような結果になってしまいます。
 
-```{r chunk9, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk9, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal2 <- filter(TokyoTotal, str_detect(時代,"[旧石器時代]"))
 
@@ -437,7 +437,7 @@ nrow(TokyoPal2)
 
 そこで以下に、`TokyoTotal`に、旧石器時代～時代不明の9つの**新規の列を追加**します。
 
-```{r chunk10, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk10, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
 
 #旧石器時代
 Tokyo.palaeolithic <- TokyoTotal %>% 
@@ -518,7 +518,7 @@ Tokyo.unknown <- TokyoTotal %>%
 
 例として旧石器時代のデータセット`Tokyo.Palaeolithic`の内容を見てみます。
 
-```{r chunk11, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk11, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
 head(Tokyo.palaeolithic)
 
 ```
@@ -535,7 +535,7 @@ head(Tokyo.palaeolithic)
 
 それでは次のチャンクを実行してみましょう。
 
-```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk12, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
 #統合:TokyoTotal.ageは遺跡名+位置座標+時期区分のみ
 TokyoTotal.age <- TokyoTotal %>%
                       left_join(dplyr::select(Tokyo.palaeolithic, JASID, 旧石器時代),by = "JASID") %>%
@@ -573,7 +573,7 @@ TokyoTotal.age <- TokyoTotal %>%
 
 次のチャンクを実行して確認してみましょう。
 
-```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk13, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 head(TokyoTotal.age)
 ```
 
@@ -585,7 +585,7 @@ head(TokyoTotal.age)
 
 今回の場合、各時代データセットは、他の時代についてのデータを持たないため、そこに含まれないレコードの値は`NA`になります。しかし実際には、全遺跡について各時代の有無をすべて検索しているので、`NA`ではなくて`0`とすべきです。これを一括置換するのが、**tidyr**パッケージの`replace_na()`関数です。
 
-```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk14, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # naを一括置換する
 TokyoTotal.age <- replace_na(TokyoTotal.age, list(旧石器時代 =0, 縄文時代 =0, 弥生時代 = 0, 古墳時代 = 0, 奈良時代 = 0, 平安時代 = 0, 中世 = 0, 近世 = 0, 時代不明 = 0))
 
@@ -620,7 +620,7 @@ head(TokyoTotal.age)
 
 .csvのファイル保存の基本は以下のチャンクの通りです。これを実行すると、現在、この.Rmdファイルを保存・実行しているフォルダに、`13Tokyo.csv`(原データ)と`13TokyoAge.csv`(時代0-1行列データ)が保存されます。
 
-```{r chunk13, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk15, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #全データ書き出し（UTF-8)
 write.csv(TokyoTotal, "13Tokyo.csv", row.names=FALSE, fileEncoding = "UTF-8")
 write.csv(TokyoTotal.age, "13TokyoAge.csv", row.names=FALSE, fileEncoding = "UTF-8")
@@ -639,7 +639,7 @@ write.csv(TokyoTotal.age, "13TokyoAge.csv", row.names=FALSE, fileEncoding = "UTF
 
 時代別データの保存は次のチャンクの通りです。
 
-```{r chunk14, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk16, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #時代別データ書き出し
 write.csv(Tokyo.palaeolithic, "13Tokyo_palaeolithic.csv", row.names=FALSE, fileEncoding = "UTF-8")
 write.csv(Tokyo.jomon, "13Tokyo_jomon.csv", row.names=FALSE, fileEncoding = "UTF-8")
@@ -658,7 +658,7 @@ write.csv(Tokyo.unknown, "13Tokyo_unknown.csv", row.names=FALSE, fileEncoding = 
 
 次のチャンクでは、**tidyr**パッケージの`drop_na()`関数を用いて、**経度**が空白のデータを削除したものを保存します。**ひなたGIS**用に**Shift-JIS**で保存しますが、Rでの**Shift-JIS**のエンコーディングの指定は`CP932`になりますので注意してください。
 
-```{r chunk15, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk17, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 TokyoTotal.coord <- drop_na(Tokyo.total,経度) #経度NAのレコードを除外して新しいオブジェクトに格納
 write.csv(TokyoTotal.coord, "13Tokyo_totalCoordSJS.csv", row.names = FALSE, fileEncoding = "CP932")　#Shift-JIS書き出し, ファイル名を適宜指定(全レコード)
 
@@ -702,7 +702,7 @@ write.csv(Tokyo.unknown, "13Tokyo_unknownSJS.csv", row.names=FALSE, fileEncoding
 
 以下のチャンクを実行すると、区市町村ごとの遺跡数の合計を取得します。
 
-```{r chunk16, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk18, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 Tokyo.summary1 <- TokyoTotal %>%  
   group_by(自治体コード) %>%  #自治体コードで集約
   count %>%                   #レコード数=遺跡数をカウント
@@ -714,7 +714,7 @@ Tokyo.summary1 <- TokyoTotal %>%
 
 1列目に**自治体コード**、2列目に**遺跡数合計**が格納されたデータフレームとなっています。しかし自治体コードだけだとぱっと見、把握しづらいですね。そこで自治体コードと自治体名の対応リストを読み込んで、自治体名を付け加えます。
 
-```{r chunk17, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk19, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #区市町村名追加
   #自治体名の読み込み(more human readable)
   LGC <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/LGC_13Tokyo.csv", setclass= "tbl_df", encoding ="UTF-8" ) #LGC_13Tokyo.csv=東京都自治体コードリスト
@@ -733,7 +733,7 @@ Tokyo.summary1 <- TokyoTotal %>%
 
 続いて自治体別-時代別の遺跡数を集計します。**自治体コード**と各時代の0-1行列でグループ化し、該当する時代が存在する=各時代列の値が0以外(`!=`は不一致を示す)でフィルター、集計(`count()`関数)します。グループ化を解除後、各時代列を削除、集計結果を格納する**n**列のラベルを時代名に変更(`rename()`関数)、`left_join()`関数で自治体別集計リスト(`Tokyo.summary1`)に追加していきます。最後に値が`NA`のセルを一括で`0`に置換します。
 
-```{r chunk18, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk20, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計2:時代別
 　  # 旧石器
   Tokyo.summary2 <- TokyoTotal.age %>% 
@@ -836,7 +836,7 @@ Tokyo.summary1 <- TokyoTotal %>%
 これで`Tokyo.summary1`に自治体別-時代別遺跡数の集計結果が格納されました。
 次のチャンクで.csv形式で保存するとともに、**formattable**パッケージを用いて表を表示します。
 
-```{r chunk19, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk21, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # .csv保存
 write.csv(Tokyo.summary1, "13TokyoSummary1.csv", row.names = FALSE, fileEncoding = "UTF-8")
 
@@ -846,7 +846,7 @@ formattable(Tokyo.summary1)
 
 **formattable**パッケージではオプションで表にバーグラフを追加することができます。ただしバーの幅は列ごとの相対表示であり、列間の比較はできません。
 
-```{r chunk20, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk22, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # formattableによる表の表示の拡張
 formattable(Tokyo.summary1,list(合計=color_bar("tomato"),
                                 旧石器=color_bar("blue"),
@@ -867,7 +867,7 @@ formattable(Tokyo.summary1,list(合計=color_bar("tomato"),
 
 以下のチャンクを実行すると、まずGitHubリポジトリから`13Tokyo_river.csv`を読み込みます。続いて**自治体コード**でつないで**水系**データを`Tokyo.summary1`に追加しますが、一対一対応による左側結合ではなく、一対多対応による`inner_join()`関数を用います。
 
-```{r chunk21, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk23, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
   # 水系リストを読み込み・結合
   river <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo_river.csv", setclass = "tbl_df", encoding="UTF-8")
   Tokyo.sumRiver <- Tokyo.summary1 %>% 
@@ -895,7 +895,7 @@ formattable(Tokyo.summary1,list(合計=color_bar("tomato"),
 
 前述の通り、ここで与えた**水系**は便宜的なもので正確なデータではありませんが、練習のために水系別-時代別遺跡数も集計してみます。
 
-```{r chunk22, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk24, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #旧石器
 Tokyo.sumRiver2 <- TokyoTotal.age %>%
                           inner_join(river, by = "自治体コード") %>%
@@ -1022,7 +1022,7 @@ rm(Tokyo.sumRiverX)
 
 まず次のチャンクを実行すると、データフレームが縦長に変換されます。
 
-```{r chunk23, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk25, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 Tokyo.sumRiver3 <- rename(Tokyo.sumRiver2, "0旧石器" = 旧石器, "1縄文" = 縄文, "2弥生" = 弥生, "3古墳" = 古墳, "4奈良" = 奈良, "5平安" = 平安, "6中世" = 中世, "7近世" = 近世, "8不明" = 不明) #昇順に並び替えるために時代列名を変更
 
 Tokyo.sumRiver3 <- gather(Tokyo.sumRiver3, key = 時代, value = 遺跡数, -水系)
@@ -1031,7 +1031,7 @@ head(Tokyo.sumRiver3)
 ```
 次に、時代を縦軸(行)、水系を横軸(列)に入れ替えます。水系ごとの時代別の遺跡数の推移が可視化されます。
 
-```{r chunk24, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk26, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 Tokyo.sumRiver3 <- spread(Tokyo.sumRiver3, key = 水系, value = 遺跡数)
 
 #並べ替え
@@ -1071,7 +1071,7 @@ formattable(Tokyo.sumRiver3,list(
 
 なお**主な遺構/概要**という列名には`/`(半角スラッシュ)が入っているためデータ操作時に問題が生じます。最初に列名を**遺構**に変更しておきます。
 
-```{r chunk25, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk27, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計2:遺跡種別
   # 列名変更
     TokyoTotal.age <- rename(TokyoTotal.age, "遺構" = "主な遺構/概要")
@@ -1186,7 +1186,7 @@ formattable(Tokyo.sumRiver3,list(
 
 ここでは遺跡・遺構種別のデータを**ひなたGIS**に読み込み表示させる際のマーカーの色を指定してから保存します。色を指定する**色**列とデータの追加は、`mutate()`関数を用います。
 
-```{r chunk26, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk28, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #遺跡・遺構種別データ書き出し
 Tokyo.Jkaizuka <- Tokyo.Jkaizuka %>%
                           drop_na(経度) %>%
