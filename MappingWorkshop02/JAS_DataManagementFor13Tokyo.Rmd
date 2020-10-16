@@ -4,9 +4,6 @@ author: "kotdijian"
 date: "2020年10月17日"
 output:
   html_document: default
-  word_document: default
-  pdf_document:
-       latex_engine: xelatex 
 documentclass: bxjsarticle
 classoption: xelatex,ja=standard
 geometry: no
@@ -291,7 +288,7 @@ Green Ideas](https://id.fnshr.info/2017/01/09/tidy-data-intro/))。
 これは[遺跡地図作成実習part1](https://github.com/kotdijian/JASOSR/tree/master/MappingWokrshop)でも取り扱ったものです。
 
 ```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
-TokyoTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo.csv", setclass= "tbl_df", encoding = "UTF-8") # TokyoTotalに原データcsvを読み込み、エンコードの指定に注意
+TokyoTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo_total.csv", setclass= "tbl_df", encoding = "UTF-8") # TokyoTotalに原データcsvを読み込み、エンコードの指定に注意
 
 ```
 
@@ -355,7 +352,7 @@ summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分
 
 フィルターを実行した結果を、あらたなオブジェクトに格納してテ保管することで、原データとフィルター後のデータセットを保持します。以下のチャンクを実行してみましょう。
 
-```{r chunk6, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal1 <- filter(TokyoTotal,時代 == "旧石器時代")
 
@@ -364,7 +361,7 @@ nrow(TokyoPal1)
 
 結果は0件でした。フィルターの条件設定に使用した`==`は一致を意味します。TokyoTotalデータセットの**時代**列には"旧石器時代"に一致するデータは1件も含まれていないのです。原データセットを見ると、時代はで括られて表記されています。そこで次のチャンクを実行しましょう。
 
-```{r chunk7, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk7, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal1 <- filter(TokyoTotal,時代 == "[旧石器時代]")
 
@@ -381,7 +378,7 @@ nrow(TokyoPal1)
 
 次のチャンクを実行してみましょう。
 
-```{r chunk8, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk8, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal1 <- filter(TokyoTotal, str_detect(時代,"旧石器時代"))
 
@@ -400,7 +397,7 @@ nrow(TokyoPal1)
 
 先のチャンク8で、検索条件を`[旧石器時代]`ではなく`旧石器時代`としたのも、この**正規表現**が関係します。`[]`は、**含まれる文字列のどれかに一致する**を指定する正規表現なのです。したがって、チャンク8の検索条件を`[旧石器時代]`にすると次のような結果になってしまいます。
 
-```{r chunk9, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk9, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 TokyoPal2 <- filter(TokyoTotal, str_detect(時代,"[旧石器時代]"))
 
@@ -437,7 +434,7 @@ nrow(TokyoPal2)
 
 そこで以下に、`TokyoTotal`に、旧石器時代～時代不明の9つの**新規の列を追加**します。
 
-```{r chunk10, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk10, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 #旧石器時代
 Tokyo.palaeolithic <- TokyoTotal %>% 
@@ -518,7 +515,7 @@ Tokyo.unknown <- TokyoTotal %>%
 
 例として旧石器時代のデータセット`Tokyo.Palaeolithic`の内容を見てみます。
 
-```{r chunk11, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk11, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 head(Tokyo.palaeolithic)
 
 ```
@@ -535,7 +532,7 @@ head(Tokyo.palaeolithic)
 
 それでは次のチャンクを実行してみましょう。
 
-```{r chunk12, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #統合:TokyoTotal.ageは遺跡名+位置座標+時期区分のみ
 TokyoTotal.age <- TokyoTotal %>%
                       left_join(dplyr::select(Tokyo.palaeolithic, JASID, 旧石器時代),by = "JASID") %>%
@@ -659,7 +656,7 @@ write.csv(Tokyo.unknown, "13Tokyo_unknown.csv", row.names=FALSE, fileEncoding = 
 次のチャンクでは、**tidyr**パッケージの`drop_na()`関数を用いて、**経度**が空白のデータを削除したものを保存します。**ひなたGIS**用に**Shift-JIS**で保存しますが、Rでの**Shift-JIS**のエンコーディングの指定は`CP932`になりますので注意してください。
 
 ```{r chunk17, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
-TokyoTotal.coord <- drop_na(Tokyo.total,経度) #経度NAのレコードを除外して新しいオブジェクトに格納
+TokyoTotal.coord <- drop_na(TokyoTotal,経度) #経度NAのレコードを除外して新しいオブジェクトに格納
 write.csv(TokyoTotal.coord, "13Tokyo_totalCoordSJS.csv", row.names = FALSE, fileEncoding = "CP932")　#Shift-JIS書き出し, ファイル名を適宜指定(全レコード)
 
 #時代別データ書き出し
