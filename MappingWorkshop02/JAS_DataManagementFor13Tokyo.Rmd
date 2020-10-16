@@ -279,6 +279,9 @@ Green Ideas](https://id.fnshr.info/2017/01/09/tidy-data-intro/))。
 
 他にも、整然データでないものを整然データに整形する手順・方法はいくつもありますが、以下の実習を通して学んでいきたいと思います。
 
+#### 参考文献
+- 西原史暁(2017)「整然データとは何か」『情報の科学と技術』67-9: 448-455. ([JSTAGE](https://www.jstage.jst.go.jp/article/jkg/67/9/67_448/_pdf))
+
 ------------------------------------------------------------------------
 
 ## 4.データの取得と確認
@@ -422,9 +425,9 @@ nrow(TokyoPal2)
 
 ------------------------------------------------------------------------
 
-## 6.時代区分0-1行列の作成
+## 6.時代区分データの作成
 
-### 6-1.時代区分行列作成の意味
+### 6-1.時代区分データ作成の意味
 
 チャンク8では、`TokyoPal1`という新規のオブジェクト(データフレーム)に`[旧石器時代]`を含むレコードを抽出して格納しました。それでは6280件のレコード全体から、各時代の遺跡数を集計したり、特定の時代(ひとつ、または複数)の遺跡を抽出するにはどうしたらよいでしょうか?
 
@@ -432,54 +435,54 @@ nrow(TokyoPal2)
 
 しかし全遺跡が一つのデータセット(データフレーム)となっていることの利便性も捨て難いものがあります。時代別にオブジェクトを分けてしまうと、複数の時代にまたがる操作、分析が煩雑になります。
 
-そこで以下に、`TokyoTotal`に**新規の列を追加**し、旧石器時代～時代不明の9つの属性が、そのレコードに含まれるかどうかを示す**0-1行列**を入力します。
+そこで以下に、`TokyoTotal`に、旧石器時代～時代不明の9つの**新規の列を追加**します。
 
 ```{r chunk10, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 #旧石器時代
 Tokyo.palaeolithic <- TokyoTotal %>% 
                       filter(str_detect(時代, "旧石器時代")) %>% 
-                      mutate(旧石器時代 = "1")
+                      mutate(旧石器時代 = "旧石器")
 
 #縄文時代
 Tokyo.jomon <- TokyoTotal %>% 
                       filter(str_detect(時代, "縄文時代")) %>% 
-                      mutate(縄文時代 = "1")
+                      mutate(縄文時代 = "縄文")
 
 #弥生時代
 Tokyo.yayoi <- TokyoTotal %>% 
                       filter(str_detect(時代, "弥生時代")) %>% 
-                      mutate(弥生時代 = "1")
+                      mutate(弥生時代 = "弥生")
 
 #古墳時代
 Tokyo.kofun <- TokyoTotal %>% 
                       filter(str_detect(時代, "古墳時代")) %>% 
-                      mutate(古墳時代 = "1")
+                      mutate(古墳時代 = "古墳")
 
 #奈良時代
 Tokyo.nara <- TokyoTotal %>% 
                       filter(str_detect(時代, "奈良時代")) %>% 
-                      mutate(奈良時代 = "1")
+                      mutate(奈良時代 = "奈良")
 
 #平安時代
 Tokyo.heian <- TokyoTotal %>% 
                       filter(str_detect(時代, "平安時代")) %>% 
-                      mutate(平安時代 = "1")
+                      mutate(平安時代 = "平安")
 
 #中世
 Tokyo.medieval <- TokyoTotal %>% 
                       filter(str_detect(時代, "中世")) %>% 
-                      mutate(中世 = "1")
+                      mutate(中世 = "中世")
 
 #近世
 Tokyo.earlymodern <- TokyoTotal %>% 
                       filter(str_detect(時代, "近世")) %>% 
-                      mutate(近世 = "1")
+                      mutate(近世 = "近世")
 
 #時代不明
 Tokyo.unknown <- TokyoTotal %>% 
                       filter(str_detect(時代, "不明")) %>% 
-                      mutate(時代不明 = "1")
+                      mutate(時代不明 = "不明")
 ```
 
 基本はチャンク8と同じですが、新しい関数や表記法が出てきました。以下に解説します。
@@ -503,15 +506,15 @@ Tokyo.unknown <- TokyoTotal %>%
 なお参考までに、チャンク10と同じ内容を**パイプ**なしで記述すると以下の通りとなります。
 
 `filter(TokyoTotal, str_detect(時代, "####"))`\
-`mutate(TokyoTotal, 旧石器時代 = 1)`
+`mutate(TokyoTotal, 旧石器時代 = "旧石器")`
 
 ### 6-3. mutate()関数
 
 チャンク10で新しく出てきた関数`mutate()`は、データフレームに新規列を作成しデータを追加するものです。
 
-`mutate(オブジェクト名, 追加する列名 = 追加するデータ)`という構文になります。ただしチャンク10では**パイプ**を用いているのでオブジェクト名が省略されています。`##時代 = 1`として、`TokyoTotal`のデータフレームに`##時代`という列を追加した上で、時代ごとに抽出されたレコードに`"1"`の値を与えます。
+`mutate(オブジェクト名, 追加する列名 = 追加するデータ)`という構文になります。ただしチャンク10では**パイプ**を用いているのでオブジェクト名が省略されています。`##時代 = "##"`として、`TokyoTotal`のデータフレームに`##時代`という列を追加し、時代ごとに抽出されたレコードに`"##`の値を与えます。
 
-結果を見てみましょう。なおチャンク10では、原データである`TokyoTotal`にダイレクトに時代区分の0-1行列を追加せず、いったん、時代別のオブジェクトを作成してそこに格納しています。これは後で時代別データセットとして書き出し、分布図作成などに利用するためです。
+結果を見てみましょう。なおチャンク10では、原データである`TokyoTotal`にダイレクトに時代区分の列を追加せず、いったん、時代別のオブジェクトを作成してそこに格納しています。これは後で時代別データセットとして書き出し、分布図作成などに利用するためです。
 
 例として旧石器時代のデータセット`Tokyo.Palaeolithic`の内容を見てみます。
 
@@ -520,7 +523,7 @@ head(Tokyo.palaeolithic)
 
 ```
 
-原データデータの`TokyoTotal`は12列(項目)×6282行(レコード)のデータフレームでしたが、新規作成した`Tokyo.palaeolithic`は13列×683行のデータフレームとなっています。一番右に新しい列(`旧石器時代)`が加わり1が入力されています。他の時代別のデータフレームも同様です。
+原データデータの`TokyoTotal`は12列(項目)×6282行(レコード)のデータフレームでしたが、新規作成した`Tokyo.palaeolithic`は13列×683行のデータフレームとなっています。一番右に新しい列(`旧石器時代)`が加わり**旧石器**が入力されています。他の時代別のデータフレームも同様です。
 
 ### 6-4.オブジェクトの連結・統合
 
@@ -528,15 +531,13 @@ head(Tokyo.palaeolithic)
 
 原データを保持しておくことは、ミスが発覚した時に検証したり、作業を巻き戻す上で重要です。一方でオブジェクトが増えすぎると煩雑となり管理が難しくなる側面もあります。このあたりは、状況を検討して最適化を図ってください。
 
-またここでは、新たなオブジェクトの列(項目)数が大きくなりすぎるので、新規作成する`TokyoTotal.age`には、地図作成上必要最小限の項目だけを加えることとします。なお必要があれば、これから説明する方法を利用して後から追加することも可能です。
-
 まず新規オブジェクトに加える項目を、`select()`関数で指定します。次に`join()`関数を用いて、各時代データセットを統合していきます。2つの関数はともに**dplyr**パッケージの関数です。当然**Tidyverse**パッケージに含まれています。
 
 それでは次のチャンクを実行してみましょう。
 
 ```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #統合:TokyoTotal.ageは遺跡名+位置座標+時期区分のみ
-TokyoTotal.age <- TokyoTotal %>% dplyr::select(JASID,自治体コード,遺跡名,緯度,経度) %>%
+TokyoTotal.age <- TokyoTotal %>%
                       left_join(dplyr::select(Tokyo.palaeolithic, JASID, 旧石器時代),by = "JASID") %>%
                       left_join(dplyr::select(Tokyo.jomon, JASID, 縄文時代),by = "JASID") %>%
                       left_join(dplyr::select(Tokyo.yayoi, JASID, 弥生時代),by = "JASID") %>%
@@ -594,7 +595,7 @@ head(TokyoTotal.age)
 ここでは、解説のため`select()`、`left_join()`の手順と`replace_na()`の手順を別のチャンクに分けていますが、これも**パイプ**でつなぐことが可能です。その場合のコードは次の通りとなります。
 
 ```{r chunk}
-    TokyoTotal.age <- TokyoTotal %>% dplyr::select(JASID,自治体コード,遺跡名,緯度,経度) %>%
+    TokyoTotal.age <- TokyoTotal %>%
                           left_join(dplyr::select(Tokyo.palaeolithic, JASID, 旧石器時代),by = "JASID") %>%
                           left_join(dplyr::select(Tokyo.jomon, JASID, 縄文時代),by = "JASID") %>%
                           left_join(dplyr::select(Tokyo.yayoi, JASID, 弥生時代),by = "JASID") %>%
@@ -691,11 +692,11 @@ write.csv(Tokyo.unknown, "13Tokyo_unknownSJS.csv", row.names=FALSE, fileEncoding
 
 ```
 
-## 7.集計と概要の把握
+## 7.集計
 
 ### 7-1.自治体別遺跡数の集計
 
-時代別0-1行列のデータが整備できたので、遺跡数の集計を行ないます。集計は、**dplyr**パッケージの関数を用いて実行します。
+時代別データが整備できたので、遺跡数の集計を行ないます。集計は、**dplyr**パッケージの関数を用いて実行します。
 
 基本的な手順は、`group_by()`関数を用いてデータを集約し、`tally()`関数で合計を計算し、あるいは`count()`関数で集計します。計算結果は**n**という新しい列に格納されるので、`rename()`関数を用いて列名を変更します。この一連の手順を**パイプ**でつなげて一気に実行します。
 
@@ -730,14 +731,14 @@ Tokyo.summary1 <- TokyoTotal %>%
 
 ###7-2.自治体別-時代別集計
 
-続いて自治体別-時代別の遺跡数を集計します。**自治体コード**と各時代の0-1行列でグループ化し、該当する時代が存在する=0-1行列の値が1でフィルター、集計(`count()`関数)します。グループ化を解除後、0-1行列の列(各時代名)を削除、集計結果を格納する**n**列のラベルを時代名に変更(`rename()`関数)、`left_join()`関数で自治体別集計リスト(`Tokyo.summary1`)に追加していきます。最後に値が`NA`のセルを一括で`0`に置換します。
+続いて自治体別-時代別の遺跡数を集計します。**自治体コード**と各時代の0-1行列でグループ化し、該当する時代が存在する=各時代列の値が0以外(`!=`は不一致を示す)でフィルター、集計(`count()`関数)します。グループ化を解除後、各時代列を削除、集計結果を格納する**n**列のラベルを時代名に変更(`rename()`関数)、`left_join()`関数で自治体別集計リスト(`Tokyo.summary1`)に追加していきます。最後に値が`NA`のセルを一括で`0`に置換します。
 
 ```{r chunk18, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計2:時代別
 　  # 旧石器
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 旧石器時代)　%>%
-    filter(旧石器時代 == 1) %>%
+    filter(旧石器時代 != 0) %>%
     count %>%
     ungroup %>%
     rename("旧石器" = "n") %>%
@@ -748,7 +749,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 縄文
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 縄文時代)　%>%
-    filter(縄文時代 == 1) %>%
+    filter(縄文時代 != 0) %>%
     count %>% 
     ungroup %>%
     rename("縄文" = "n") %>%
@@ -758,7 +759,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 弥生
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 弥生時代)　%>%
-    filter(弥生時代 == 1) %>%
+    filter(弥生時代 != 0) %>%
     count %>% 
     ungroup %>%
     rename("弥生" = "n") %>% 
@@ -768,7 +769,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 古墳
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 古墳時代)　%>%
-    filter(古墳時代 == 1) %>%
+    filter(古墳時代 != 0) %>%
     count %>% 
     ungroup %>% 
     rename("古墳" = "n") %>% 
@@ -778,7 +779,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 奈良
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 奈良時代)　%>%
-    filter(奈良時代 == 1) %>% 
+    filter(奈良時代 != 0) %>% 
     count %>%
     ungroup %>%
     rename("奈良" = "n") %>% 
@@ -788,7 +789,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 平安
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 平安時代)　%>%
-    filter(平安時代 == 1) %>%
+    filter(平安時代 != 0) %>%
     count %>% 
     ungroup %>% 
     rename("平安" = "n") %>% 
@@ -798,7 +799,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 中世
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 中世)　%>%
-    filter(中世 == 1) %>%
+    filter(中世 != 0) %>%
     count %>% 
     ungroup %>% 
     dplyr::select(-中世) %>%
@@ -808,7 +809,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 近世
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 近世)　%>%
-    filter(近世 == 1) %>%
+    filter(近世 != 0) %>%
     count %>% 
     ungroup %>% 
     dplyr::select(-近世) %>%
@@ -818,7 +819,7 @@ Tokyo.summary1 <- TokyoTotal %>%
   # 時代不明
   Tokyo.summary2 <- TokyoTotal.age %>% 
     group_by(自治体コード, 時代不明)　%>%
-    filter(時代不明 == 1) %>%
+    filter(時代不明 != 0) %>%
     count %>% 
     ungroup %>% 
     dplyr::select(-時代不明) %>%
@@ -827,6 +828,9 @@ Tokyo.summary1 <- TokyoTotal %>%
   
   # NAを0に置換
   Tokyo.summary1[is.na(Tokyo.summary1)] <- 0
+  
+  # 一時保管オブジェクトを削除
+  rm(Tokyo.summary2)
 ```
 
 これで`Tokyo.summary1`に自治体別-時代別遺跡数の集計結果が格納されました。
@@ -857,23 +861,26 @@ formattable(Tokyo.summary1,list(合計=color_bar("tomato"),
 ```
 
 
-**順列を自治体コードから河川水系別に変更**
-自治体コードによる順列では地理的な感覚が捉えづらいので、河川水系別のデータを追加して順列を変更します。ただし各自治体は一つの水系にだけ含まれるわけではなく、ひとつの水系で代表させています。あくまで便宜的な区分ということで理解してください。
+### 7-3.河川水系別に並べ替え
 
-```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+自治体コードによる順列では地理的な感覚が捉えづらいので、河川水系別のデータを追加して順列を変更します。ただし各自治体は一つの水系にだけ含まれるわけではなく、ひとつの水系で代表させています。あくまで便宜的な区分ということで理解してください。なお同一水系内では、下流→上流と自治体の順列を与えています。
+
+以下のチャンクを実行すると、まずGitHubリポジトリから`13Tokyo_river.csv`を読み込みます。続いて**自治体コード**でつないで**水系**データを`Tokyo.summary1`に追加しますが、一対一対応による左側結合ではなく、一対多対応による`inner_join()`関数を用います。
+
+```{r chunk21, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
   # 水系リストを読み込み・結合
-  river <- import("https://github.com/kotdijian/JASSOR/raw/master/13Tokyo/13Tokyo_river.csv", setclass = "tbl_df", encoding="UTF-8")
-  Tokyo.stable <- Tokyo.st %>% 
+  river <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo_river.csv", setclass = "tbl_df", encoding="UTF-8")
+  Tokyo.sumRiver <- Tokyo.summary1 %>% 
     inner_join(river, by = "自治体コード") %>% 
-    dplyr::select("水系", "配列", "自治体コード", "名称", "合計", "旧石器", "縄文", "弥生", "古墳", "奈良", "平安", "中世", "近世", "時代不明")
+    dplyr::select("水系", "配列", "自治体コード", "区市町村名", "遺跡数合計", "旧石器", "縄文", "弥生", "古墳", "奈良", "平安", "中世", "近世", "不明")
   
   
 # 表形式で表示
   #河川水系でソート
-  Tokyo.stable <- arrange(Tokyo.stable, 配列)
+  Tokyo.sumRiver <- arrange(Tokyo.sumRiver, 配列)
   
   #formattableで表出力
-  formattable(Tokyo.stable,list(合計=color_bar("tomato"),
+  formattable(Tokyo.sumRiver,list(合計=color_bar("tomato"),
                            旧石器=color_bar("blue"),
                            縄文=color_bar("brown"),
                            弥生=color_bar("orange"),
@@ -886,54 +893,225 @@ formattable(Tokyo.summary1,list(合計=color_bar("tomato"),
 
 ```
 
-**時代別・遺跡種別の集計**
+前述の通り、ここで与えた**水系**は便宜的なもので正確なデータではありませんが、練習のために水系別-時代別遺跡数も集計してみます。
 
-```{r chunk7, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk22, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#旧石器
+Tokyo.sumRiver2 <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,旧石器時代) %>%
+                          filter(旧石器時代 != 0) %>%
+                          count %>%
+                          rename(旧石器 = n) %>%
+                          ungroup %>%
+                          dplyr::select(-旧石器時代)
+
+#縄文                        
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,縄文時代) %>%
+                          filter(縄文時代 != 0) %>%
+                          count %>%
+                          rename(縄文 = n) %>%
+                          ungroup %>%
+                          dplyr::select(-縄文時代)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系")
+
+#弥生
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,弥生時代) %>%
+                          filter(弥生時代 != 0) %>%
+                          count %>%
+                          rename(弥生 = n) %>%
+                          ungroup %>%
+                          dplyr::select(-弥生時代)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系")
+
+#古墳
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,古墳時代) %>%
+                          filter(古墳時代 != 0) %>%
+                          count %>%
+                          rename(古墳 = n) %>%
+                          ungroup %>%
+                          dplyr::select(-古墳時代)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系")
+
+#奈良
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,奈良時代) %>%
+                          filter(奈良時代 != 0) %>%
+                          count %>%
+                          rename(奈良 = n) %>%
+                          ungroup %>%
+                          dplyr::select(-奈良時代)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系")
+
+#平安
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,平安時代) %>%
+                          filter(平安時代 != 0) %>%
+                          count %>%
+                          rename(平安 = n) %>%
+                          ungroup %>%
+                          dplyr::select(-平安時代)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系")
+
+#中世
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,中世) %>%
+                          filter(中世 != 0) %>%
+                          count %>%
+                          ungroup %>%
+                          dplyr::select(-中世) %>%
+                          rename(中世 = n)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系")
+
+#近世
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,近世) %>%
+                          filter(近世 != 0) %>%
+                          count %>%
+                          ungroup %>%
+                          dplyr::select(-近世) %>%
+                          rename(近世 = n)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系")
+
+#不明
+Tokyo.sumRiverX <- TokyoTotal.age %>%
+                          inner_join(river, by = "自治体コード") %>%
+                          group_by(水系,時代不明) %>%
+                          filter(時代不明 != 0) %>%
+                          count %>%
+                          rename(不明 = n) %>%
+                          ungroup %>%
+                          dplyr::select(-時代不明)
+Tokyo.sumRiver2 <- left_join(Tokyo.sumRiver2,Tokyo.sumRiverX, by = "水系") 
+
+#NAを0に置換
+Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] <- 0
+
+# 表形式で表示
+  #formattableで表出力
+  formattable(Tokyo.sumRiver2,list(合計=color_bar("tomato"),
+                           旧石器=color_bar("blue"),
+                           縄文=color_bar("brown"),
+                           弥生=color_bar("orange"),
+                           古墳=color_bar("green"),
+                           奈良=color_bar("purple"),
+                           平安=color_bar("yellow"),
+                           中世=color_bar("pink"),
+                           近世=color_bar("skyblue"),
+                           時代不明=color_bar("lightgrey")))
+
+#一時保管オブジェクトを削除
+rm(Tokyo.sumRiverX)
+```
+
+### 7-4.表の行列の入れ替え
+
+チャンク22で作成したデータフレーム(`Tokyo.sumRiver2`)は、行(縦軸)が水系、列(横軸)が時代となっています。**formattable**パッケージによるカラー・バーグラフは、同一列内での相対的な数値の大小を示すので、同じ時代における水系ごとの遺跡数の多寡が表現されています。
+
+ここでデータフレームの行列を入れ替えることができると、今度は同一の水系における時代ごとの遺跡数の多寡を視覚化することができます。
+
+まず次のチャンクを実行すると、データフレームが縦長に変換されます。
+
+```{r chunk23, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+Tokyo.sumRiver3 <- rename(Tokyo.sumRiver2, "0旧石器" = 旧石器, "1縄文" = 縄文, "2弥生" = 弥生, "3古墳" = 古墳, "4奈良" = 奈良, "5平安" = 平安, "6中世" = 中世, "7近世" = 近世, "8不明" = 不明) #昇順に並び替えるために時代列名を変更
+
+Tokyo.sumRiver3 <- gather(Tokyo.sumRiver3, key = 時代, value = 遺跡数, -水系)
+
+head(Tokyo.sumRiver3)
+```
+次に、時代を縦軸(行)、水系を横軸(列)に入れ替えます。水系ごとの時代別の遺跡数の推移が可視化されます。
+
+```{r chunk24, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+Tokyo.sumRiver3 <- spread(Tokyo.sumRiver3, key = 水系, value = 遺跡数)
+
+#並べ替え
+Tokyo.sumRiver3 <- dplyr::select(Tokyo.sumRiver3, 時代, 多摩川, 野川, 三沢川, 乞田川, 残堀川, 浅川, 秋川, 平井川, 目黒川, 渋谷川, 神田川, 小石川, 妙正寺川, 石神井川, 隅田川, 荒川, 黒目川, 柳瀬川, 空堀川, 鶴見川)
+
+#formattableで表出力
+formattable(Tokyo.sumRiver3,list(
+                           多摩川=color_bar("blue"),
+                           野川=color_bar("skyblue"),
+                           三沢川=color_bar("green"),
+                           乞田川=color_bar("lightgreen"),
+                           残堀川=color_bar("darkblue"),
+                           浅川=color_bar("lightblue"),
+                           秋川=color_bar("blue"),
+                           平井川=color_bar("lightgreen"),
+                           目黒川=color_bar("pink"),
+                           渋谷川=color_bar("orange"),
+                           神田川=color_bar("red"),
+                           小石川=color_bar("pink"),
+                           妙正寺川=color_bar("orange"),
+                           石神井川=color_bar("yellow"),
+                           隅田川=color_bar("grey"),
+                           荒川=color_bar("black"),
+                           黒目川=color_bar("lightgreen"),
+                           柳瀬川=color_bar("green"),
+                           空堀川=color_bar("darkgreen"),
+                           鶴見川=color_bar("tomato")
+                           )
+            )
+
+```
+
+
+### 7-5.時代別-遺跡種別の集計
+
+自治体別-または河川水系別-時代別の集計と同じ手順で、遺跡種別データを集計します。集計の際に作成するリストは、遺跡分布図作成データとしても利用できるので保管し、後ほど.csvファイルとして書き出します。
+
+なお**主な遺構/概要**という列名には`/`(半角スラッシュ)が入っているためデータ操作時に問題が生じます。最初に列名を**遺構**に変更しておきます。
+
+```{r chunk25, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計2:遺跡種別
-  # 列名整理
-TokyoTotal2 <- rename(TokyoTotal, "遺構" = "主な遺構/概要") #属性項目名に/(スラッシュ)が入っているとデータ処理の正規表現に影響するため項目名を変更
-
-  # 時代追加
-Tokyo.totage <- dplyr::select(TokyoTotal.age,-自治体コード, -遺跡名, -緯度, -経度)
-TokyoTotal2 <- left_join(TokyoTotal2, Tokyo.totage, by = "JASID")
-
-  # ベースリスト
-Tokyo.sp <- dplyr::select(Tokyo.st,自治体コード,区市町村名)
-
+  # 列名変更
+    TokyoTotal.age <- rename(TokyoTotal.age, "遺構" = "主な遺構/概要")
+  #ベースリスト
+    Tokyo.sp <- TokyoTotal.age %>%
+      group_by(自治体コード) %>%
+      count %>%
+      rename("遺跡数合計" = "n")
+      
   # 縄文貝塚
     #リスト
-      Tokyo.Jkaizuka <- TokyoTotal2 %>% 
-        filter(縄文時代 == 1) %>% 
+      Tokyo.Jkaizuka <- TokyoTotal.age %>% 
+        filter(縄文時代 != 0) %>% 
         filter(str_detect(種別, "貝塚"))
     #集計
-      Tokyo.st2 <- TokyoTotal2 %>%
-        filter(str_detect(種別, "貝塚")) %>% 
+      Tokyo.st2 <- TokyoTotal.age %>%
         group_by(自治体コード)　%>%
-        tally %>% 
+        count %>% 
         rename("貝塚" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
-  
+      
   # 方形周溝墓
     #リスト
-      Tokyo.Yshukoubo <- TokyoTotal2 %>% 
-        filter(弥生時代 == 1) %>% 
+      Tokyo.Yshukoubo <- TokyoTotal.age %>% 
+        filter(弥生時代 != 0) %>% 
         filter(str_detect(遺構, "方形周溝墓"))
     #集計
-      Tokyo.st2 <- TokyoTotal2 %>% 
-        filter(str_detect(遺構,"方形周溝墓")) %>% 
+      Tokyo.st2 <- Tokyo.Yshukoubo %>% 
         group_by(自治体コード) %>% 
-        tally() %>% 
+        count() %>% 
         rename("方形周溝墓" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
   
   # 古墳
     #リスト
-      Tokyo.Kkofun <- TokyoTotal2 %>% 
-        filter(古墳時代 == 1) %>% 
+      Tokyo.Kkofun <- TokyoTotal.age %>% 
+        filter(古墳時代 != 0) %>% 
         filter(str_detect(種別, "古墳"))
     #集計
-      Tokyo.st2 <- TokyoTotal2 %>% 
-        filter(str_detect(種別,"古墳")) %>% 
+      Tokyo.st2 <- Tokyo.Kkofun %>% 
         group_by(自治体コード) %>% 
         tally %>% 
         rename("古墳" = "n")
@@ -941,38 +1119,23 @@ Tokyo.sp <- dplyr::select(Tokyo.st,自治体コード,区市町村名)
   
   # 横穴墓
     #リスト
-      Tokyo.Kyokoana <- TokyoTotal2 %>% 
-        filter(古墳時代 == 1) %>% 
+      Tokyo.Kyokoana <- TokyoTotal.age %>% 
+        filter(古墳時代 != 0) %>% 
         filter(str_detect(種別, "横穴墓"))
     #集計
-      Tokyo.st2 <- TokyoTotal2 %>% 
-        filter(str_detect(種別,"横穴墓")) %>% 
+      Tokyo.st2 <- Tokyo.Kyokoana %>% 
         group_by(自治体コード) %>% 
         tally %>% 
         rename("横穴墓" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
   
-  # 社寺
+  # 中世城館
     #リスト
-      Tokyo.temple <- TokyoTotal2 %>% 
-        filter(str_detect(種別, "社寺"))
-    #集計
-      Tokyo.st2 <- TokyoTotal2 %>% 
-        filter(str_detect(種別,"社寺")) %>% 
-        group_by(自治体コード) %>% 
-        tally %>% 
-        rename("社寺" = "n")
-      Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
-  
-  # 城跡
-    #リスト
-      Tokyo.Mjokan <- TokyoTotal2 %>% 
-        filter(中世 == 1) %>% 
+      Tokyo.Mjokan <- TokyoTotal.age %>% 
+        filter(中世 != 0) %>% 
         filter(str_detect(種別, "城館"))
     #集計
-      Tokyo.st2 <- TokyoTotal2 %>% 
-        filter(中世 ==1) %>% 
-        filter(str_detect(種別,"城館")) %>% 
+      Tokyo.st2 <- Tokyo.Mjokan %>% 
         group_by(自治体コード) %>% 
         tally %>% 
         rename("城館" = "n")
@@ -980,11 +1143,10 @@ Tokyo.sp <- dplyr::select(Tokyo.st,自治体コード,区市町村名)
   
   # 塚
     #リスト
-      Tokyo.Mtsuka <- TokyoTotal2 %>% 
+      Tokyo.Mtsuka <- TokyoTotal.age %>% 
         filter(str_detect(種別, "塚"))
     #集計
-      Tokyo.st2 <- TokyoTotal2 %>% 
-        filter(str_detect(種別,"塚")) %>% 
+      Tokyo.st2 <- Tokyo.Mtsuka %>% 
         group_by(自治体コード) %>% 
         tally %>% 
         rename("塚" = "n")
@@ -993,10 +1155,13 @@ Tokyo.sp <- dplyr::select(Tokyo.st,自治体コード,区市町村名)
   # NAを0に置換
   Tokyo.sp[is.na(Tokyo.sp)] <- 0
   
-   # 水系リストを読み込み・結合
+  # 一時データの削除
+  rm(Tokyo.st2)
+  
+  # 水系リストを読み込み・結合
   Tokyo.sp <- Tokyo.sp %>% 
     inner_join(river, by = "自治体コード") %>% 
-    dplyr::select("水系", "配列", "自治体コード", "名称", "貝塚", "方形周溝墓", "古墳", "横穴墓", "社寺", "城館", "塚")
+    dplyr::select("水系", "配列", "自治体コード", "名称", "貝塚", "方形周溝墓", "古墳", "横穴墓", "城館", "塚")
   
   #河川水系でソート
   Tokyo.sp <- arrange(Tokyo.sp, 配列)
@@ -1005,13 +1170,66 @@ Tokyo.sp <- dplyr::select(Tokyo.st,自治体コード,区市町村名)
   formattable(Tokyo.sp,list(貝塚=color_bar("blue"),
                            方形周溝墓=color_bar("orange"),
                            古墳=color_bar("green"),
-                           社寺=color_bar("yellow"),
+                           横穴墓=color_bar("brown"),
                            城館=color_bar("red"),
-                           塚=color_bar("purple"),
-                           横穴墓=color_bar("brown")
+                           塚=color_bar("purple")
                            )
             )
 
 ```
 
-基礎的なデータの操作は以上です。各関数の引数を変更して結果を確認しながら操作を覚えてください。また類似する関数を使用することで異なる結果を得ることも可能です。
+なお時代別データと同様、`left_join()`関数で抽出した遺跡・遺構種別データを原データ`TokyoTotal`に追加しておくと、後からの検索や集計が容易になる。その手順・方法はチャンク12と基本的に同じです。
+
+## 8.ウェブGISデータの書き出し
+
+先にチャンク15では、時代別リストをそのままShift-JISの.csvファイルに書き出しました。
+
+ここでは遺跡・遺構種別のデータを**ひなたGIS**に読み込み表示させる際のマーカーの色を指定してから保存します。色を指定する**色**列とデータの追加は、`mutate()`関数を用います。
+
+```{r chunk26, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#遺跡・遺構種別データ書き出し
+Tokyo.Jkaizuka <- Tokyo.Jkaizuka %>%
+                          drop_na(経度) %>%
+                          mutate(色 = "blue")
+write.csv(Tokyo.Jkaizuka, "13Tokyo_kaizukaSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+
+Tokyo.Yshukoubo <- Tokyo.Yshukoubo %>%
+                          drop_na(経度) %>%
+                          mutate(色 = "orange")
+write.csv(Tokyo.Yshukoubo, "13Tokyo_shukoboSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+
+Tokyo.Kkofun<- Tokyo.Kkofun %>%
+                          drop_na(経度) %>%
+                          mutate(色 = "green")
+write.csv(Tokyo.Kkofun, "13Tokyo_kofunSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+
+Tokyo.Kyokoana <- Tokyo.Kyokoana %>%
+                          drop_na(経度) %>%
+                          mutate(色 = "brown")
+write.csv(Tokyo.Kyokoana, "13Tokyo_yokoanaSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+
+Tokyo.Mjokan <- Tokyo.Mjokan %>%
+                          drop_na(経度) %>%
+                          mutate(色 = "red")
+write.csv(Tokyo.Mjokan, "13Tokyo_jokanSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+
+Tokyo.Mtsuka <- Tokyo.Mtsuka %>%
+                          drop_na(経度) %>%
+                          mutate(色 = "purple")
+write.csv(Tokyo.Mtsuka, "13Tokyo_tsukaSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+
+```
+
+## おわりに
+
+東京都遺跡地図データを用いた実習は以上です。今回は大規模なデータセットを整形・編集するために有効な**dplyr**パッケージの主要な関数について実習を通して学びました。ここで取り上げなかった関数や機能もあります。参考文献やインターネット上の情報を活用してみてください。
+
+**R**を使ったデータ編集の最大の利点は、自動化、効率化と同時に、手順をコードとして記録しておくことで、過程を検証したり、再現することが可能になることにもあります。SpreadsheetやExcelでの作業時に、以前の手順が分からなくなったり、そのため何故そのようなデータが生じているのかが分からなくなったりした経験はないでしょうか?
+
+このRマークダウン文書にあるようなプログラムの実行コード(ソースコード)を書くことは、知識・経験が必要であり、実際にはSpreadsheetやExcel上で手作業を行なうのと手間は大きく変わらないかもしれません。しかしコードを書き、記録しておくことで検証・再現が可能になると同時に、同じような作業はコードを再利用することで効率化できる場合もあります。作業が完了したデータリストのエンコーディングを指定・変換して保存することを繰り返すような処理は、それこそ手作業ではなく機械化(プログラム化)することで、間違いを減らせるとともに、他の作業に当てられる時間を確保できるようにもなるでしょう。
+
+さらにコードを公開・共有することで、自分ひとりで作業するよりも効率化を推進することが可能になるでしょう。
+
+そのような観点から、これからも積極的に**R**を利用してみてください。
+
+また**R**上で分布図を作成することも可能です。関心のある方は[こちら](https://github.com/LiYingWang/Japan_GIS_workshop_202006_LW)をご参照ください。リクエストが多ければ、ワークショップの開催も企画します。
