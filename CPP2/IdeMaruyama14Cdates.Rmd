@@ -32,7 +32,7 @@ This .Rmd requires following packages. Please install the latest version before 
 -   rcarbon (<https://cran.r-project.org/web/packages/> rcarbon/vignettes/rcarbon.html)
 -   Bchron (<https://cran.r-project.org/web/packages/> Bchron/vignettes/Bchron.html)
 
-```{r chunk01 echo=FALSE}
+```{r chunk01, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # install and activate packages/必要なパッケージのインストールとアクティベート
 
 if(!require("rcarbon")) install.packages('rcarbon', repos='http://cran.us.r-project.org')
@@ -46,7 +46,7 @@ library(ggplot2)
 
 ## Data source/ ソースデータ
 
-```{r chunk02 echo=TRUE}
+```{r chunk02, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # 測定ID、測定年代、誤差を入力
 Age.IdeM <- data.frame(
   ID = c("IAAA-63169","IAAA-63170","IAAA-63171","IAAA-63172","IAAA-63173","IAAA-63174"),
@@ -63,7 +63,7 @@ Calibrating each date by Intcal20 then show summary (Median, OneSigma and TwoSig
 
 Intcal20による較正年代を個別の測定値ごとに計算し、中央値、1σ範囲、2σ範囲を表示します。
 
-```{r chunk03 echo=TRUE}
+```{r chunk03, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 Age <- calibrate(x = Age.IdeM$conventional_date,
                  errors = Age.IdeM$error,
                  calCurves = 'intcal20'
@@ -72,17 +72,23 @@ Age$metadata[1] <- Age.IdeM[1] #rewrite ID as source data
 summary(Age)
 
 par(mfrow=c(2,3)) 
-plot(Age[1], HPD=TRUE, credMass=0.95) + labs(title = Age.IdeM$ID[1])
+plot(Age[1], HPD=TRUE, credMass=0.95)
+title(main = Age.IdeM$ID[1])
 plot(Age[2], HPD=TRUE, credMass=0.95)
+title(main = Age.IdeM$ID[2])
 plot(Age[3], HPD=TRUE, credMass=0.95)
+title(main = Age.IdeM$ID[3])
 plot(Age[4], HPD=TRUE, credMass=0.95)
+title(main = Age.IdeM$ID[4])
 plot(Age[5], HPD=TRUE, credMass=0.95)
+title(main = Age.IdeM$ID[5])
 plot(Age[6], HPD=TRUE, credMass=0.95)
+title(main = Age.IdeM$ID[6])
 ```
 
 降順でマルチプロットを表示します。
 
-```{r chunk04 echo=TRUE}
+```{r chunk04, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 multiplot(Age, decreasing=TRUE, rescale=TRUE, HPD=TRUE)
 title(main = 'Ide Maruyama1 multiplot of caliblated 14C dates')
 
@@ -92,7 +98,7 @@ title(main = 'Ide Maruyama1 multiplot of caliblated 14C dates')
 
 6点のサンプルに対する較正年代値の累積確率分布を計算し、500年移動平均のライン（青破線）を表示します。37,300calBPにピークを確認できます。
 
-```{r chunk04 echo=TRUE}
+```{r chunk05, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 Age.spd = spd(Age,
               timeRange = c(40000,35000)) 
 Age.bins = binPrep(sites = Age.IdeM$ID,
@@ -112,7 +118,7 @@ title(main = 'Ide Maruyama1 Summed Probability Distribution')
 
 # Multiplot published in CPP2 short report
 
-```{r chunk05 echo=TRUE}
+```{r chunk06, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 Age2 = BchronCalibrate(ages=Age.IdeM$conventional_date,
                         ageSds=Age.IdeM$error,
                         ids = Age.IdeM$ID,
