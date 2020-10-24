@@ -3,6 +3,7 @@ title: "Calib4IdeMaruyama"
 author: "kotdijian"
 date: "2020/9/28"
 output:
+  word_document: default
   html_document:
     df_print: paged
 ---
