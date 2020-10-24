@@ -2,7 +2,9 @@
 title: "Calib4IdeMaruyama"
 author: "kotdijian"
 date: "2020/9/28"
-output: word_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -11,35 +13,39 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction/ これはなんですか?
 
-This is an R Markdown document for Intcal20 calibration of the 1st cultural layer of Ide Maruyama site, which is the oldest reported human occupation with AMS dates in the Japanese Archipelago as of 2020. First published on Noguchi (2020) Feasibility of pre-40k or before Upper Palaeolithic site in the Japanese Archipelago. *Communications of the Palaeo Perspective*, 2: ##-## (in Japanese).  
-The reference of Ide Maruyama site excavation report is as following: Numazu City Board of Education (2011) *Ide Maruyama Site*. (in Japanese).  
-You will get results and plots in step by step when you click *Run Current Chunk* triangle button at the right-above corner of each **Code Chunk**, which is appeared with glay back in this document.  
+This is an R Markdown document for Intcal20 calibration of the 1st cultural layer of Ide Maruyama site, which is the oldest reported human occupation with AMS dates in the Japanese Archipelago as of 2020. First published on Noguchi (2020) Feasibility of pre-40k or before Upper Palaeolithic site in the Japanese Archipelago. *Communications of the Palaeo Perspective*, 2: \#\#-\#\# (in Japanese).\
+The reference of Ide Maruyama site excavation report is as following: Numazu City Board of Education (2011) *Ide Maruyama Site*. (in Japanese).\
+You will get results and plots in step by step when you click *Run Current Chunk* triangle button at the right-above corner of each **Code Chunk**, which is appeared with glay back in this document.
 
-これは2020年時点で日本列島最古の炭素年代測定値が報告されている井出丸山遺跡第1文化層（静岡県沼津市）の、Intcal20にもとづく較正年代を計算・表示するためのRマークドキュメントです。  
-初出：野口　淳(2020)日本列島における後期旧石器時代以前、または4万年前以前の遺跡の可能性.**旧石器時代研究への視座**2:##-##、八ヶ岳旧石器研究グループ  
-井出丸山遺跡報告：沼津市教育委員会(2011)『井出丸山遺跡』  
+これは2020年時点で日本列島最古の炭素年代測定値が報告されている井出丸山遺跡第1文化層（静岡県沼津市）の、Intcal20にもとづく較正年代を計算・表示するためのRマークドキュメントです。\
+初出：野口　淳(2020)日本列島における後期旧石器時代以前、または4万年前以前の遺跡の可能性.**旧石器時代研究への視座**2:\#\#-\#\#、八ヶ岳旧石器研究グループ\
+井出丸山遺跡報告：沼津市教育委員会(2011)『井出丸山遺跡』
 
 灰色の背景で表示されている**コード・チャンク**の右上に表示されている右向き三角形の*Run Current Chunk*ボタンをクリックすることで、順にプログラムが実行され結果が表示されます。
 
 ## Require package/ 必要なパッケージ
+
 This .Rmd requires following packages. Please install the latest version before running (chunk01).
 
 このRマークドキュメントでは以下のパッケージを必要とします。最新のバージョンをインストールして実行してください（チャンク01）。
 
-* rcarbon (https://cran.r-project.org/web/packages/ rcarbon/vignettes/rcarbon.html)
-* Bchron (https://cran.r-project.org/web/packages/ Bchron/vignettes/Bchron.html)
+-   rcarbon (<https://cran.r-project.org/web/packages/> rcarbon/vignettes/rcarbon.html)
+-   Bchron (<https://cran.r-project.org/web/packages/> Bchron/vignettes/Bchron.html)
 
 ```{r chunk01 echo=FALSE}
 # install and activate packages/必要なパッケージのインストールとアクティベート
 
-install.packages("rcarbon")
-install.packages("Bchron")
+if(!require("rcarbon")) install.packages('rcarbon', repos='http://cran.us.r-project.org')
+if(!require("Bchron")) install.packages('Bchron', repos='http://cran.us.r-project.org') 
+if(!require("ggplot2")) install.packages('ggplot2', repos='http://cran.us.r-project.org') 
 
 library(rcarbon)
 library(Bchron)
+library(ggplot2)
 ```
 
 ## Data source/ ソースデータ
+
 ```{r chunk02 echo=TRUE}
 # 測定ID、測定年代、誤差を入力
 Age.IdeM <- data.frame(
@@ -52,30 +58,61 @@ Age.IdeM
 ```
 
 # calibration of each dates by rcarbon/ rcarbonによる個別の年代測定値の較正
+
 Calibrating each date by Intcal20 then show summary (Median, OneSigma and TwoSigma BP).
 
 Intcal20による較正年代を個別の測定値ごとに計算し、中央値、1σ範囲、2σ範囲を表示します。
 
 ```{r chunk03 echo=TRUE}
-Age <- calibrate(x = c(32720,32920,33040,33180,33230,32770),
-                 errors = c(190,200,190,180,190,170),
+Age <- calibrate(x = Age.IdeM$conventional_date,
+                 errors = Age.IdeM$error,
                  calCurves = 'intcal20'
                  )
 Age$metadata[1] <- Age.IdeM[1] #rewrite ID as source data
 summary(Age)
 
-plot(Age[1], HPD=TRUE, credMass=0.95)
+par(mfrow=c(2,3)) 
+plot(Age[1], HPD=TRUE, credMass=0.95) + labs(title = Age.IdeM$ID[1])
 plot(Age[2], HPD=TRUE, credMass=0.95)
 plot(Age[3], HPD=TRUE, credMass=0.95)
 plot(Age[4], HPD=TRUE, credMass=0.95)
 plot(Age[5], HPD=TRUE, credMass=0.95)
 plot(Age[6], HPD=TRUE, credMass=0.95)
+```
+
+降順でマルチプロットを表示します。
+
+```{r chunk04 echo=TRUE}
+multiplot(Age, decreasing=TRUE, rescale=TRUE, HPD=TRUE)
+title(main = 'Ide Maruyama1 multiplot of caliblated 14C dates')
 
 ```
 
-# Plot 
+# Summed Probability Distribution of given data/累積確率分布
+
+6点のサンプルに対する較正年代値の累積確率分布を計算し、500年移動平均のライン（青破線）を表示します。37,300calBPにピークを確認できます。
 
 ```{r chunk04 echo=TRUE}
+Age.spd = spd(Age,
+              timeRange = c(40000,35000)) 
+Age.bins = binPrep(sites = Age.IdeM$ID,
+                   ages = Age.IdeM$conventional_date,
+                   h=100)
+Age.spd.bins = spd(Age,
+                   bins = Age.bins,
+                   timeRange = c(40000,35000))
+Age.bins.med = binMed(x = Age, bins = Age.bins)
+
+plot(Age.spd.bins)
+plot(Age.spd.bins, 
+     add = TRUE, runm = 500, type = "simple", col = "blue", lwd = 1.5, lty = 2)
+barCodes(Age.bins.med,yrng = c(0,0.0005), col = "blue")
+title(main = 'Ide Maruyama1 Summed Probability Distribution')
+```
+
+# Multiplot published in CPP2 short report
+
+```{r chunk05 echo=TRUE}
 Age2 = BchronCalibrate(ages=Age.IdeM$conventional_date,
                         ageSds=Age.IdeM$error,
                         ids = Age.IdeM$ID,
@@ -84,14 +121,12 @@ Age2 = BchronCalibrate(ages=Age.IdeM$conventional_date,
 
 summary(Age2)
 
-library(ggplot2)
 plot(Age2, 
      dateHeight = 1,
      dateLabels = TRUE
      ) +
   labs(x = 'Age (years BP)',
        y = '',
-              title = 'Ide Maruyama 1 multiplot') +
+              title = 'Ide Maruyama 1 multiplot by Bchron') +
   scale_y_continuous(breaks = NULL)
 ```
-
