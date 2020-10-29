@@ -2,29 +2,682 @@
 title: "MappingWorkshop03"
 author: "Kotdijian"
 date: "2020/10/24"
-output: html_document
+output:
+  word_document: default
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+# パッケージのインストールとアクティベーション
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r chunk0, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#パッケージチェックとインストール
+if(!require("tidyverse")) install.packages('tidyverse', repos='http://cran.us.r-project.org') 
+if(!require("ggplot2")) install.packages('ggplot2', repos='http://cran.us.r-project.org') 
+if(!require("cowplot")) install.packages('cowplot', repos='http://cran.us.r-project.org') 
+if(!require("ggspatial")) install.packages('ggspatial', repos='http://cran.us.r-project.org') 
+if(!require("tidyverse")) install.packages('tidyverse', repos='http://cran.us.r-project.org') 
+if(!require("sf")) install.packages('sf', repos='http://cran.us.r-project.org') 
+if(!require("GISTools")) install.packages('GISTools', repos='http://cran.us.r-project.org') 
+if(!require("mapview")) install.packages('mapview', repos='http://cran.us.r-project.org') 
+if(!require("leaflet")) install.packages('leaflet', repos='http://cran.us.r-project.org') 
+if(!require("rio")) install.packages('rio', repos='http://cran.us.r-project.org')  
+if(!require("utf8")) install.packages("utf8", repos='http://cran.us.r-project.org')
+if(!require("bit64")) install.packages("bit64", repos='http://cran.us.r-project.org')
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+#パッケージのアクティベート
+library("tidyverse")  #下に詳述
+library("ggplot2")    #下に詳述
+library("cowplot")    #下に詳述
+library("ggspatial")  #下に詳述
+library("sf")         #下に詳述
+library("GISTools")   #下に詳述
+library("mapview")    #下に詳述
+library("leaflet")    #下に詳述
+library("rio")        #データの読み込み
+library("utf8")       #UTF-8エンコーディング対応
+library("bit64")        #UID13桁対応
 
-```{r cars}
-summary(cars)
 ```
 
-## Including Plots
+### sf(Simple Features)とは
 
-You can also embed plots, for example:
+- 参考[「Rを使った地理空間データの可視化と分析」](https://tsukubar.github.io/r-spatial-guide/simple-feature-for-r.html)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+### leafletとは
+
+- [leaflet for R](https://rstudio.github.io/leaflet/)
+- 参考[kazutan「leafletではじめるRによる地図プロット」](https://kazutan.github.io/JapanR2015/leaflet_d.html)
+
+# R-GISでのベクターデータの取扱い:日本の行政界データ
+
+```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+if(!require("jpndistrict")) install.packages('jpndistrict', repos='http://cran.us.r-project.org') 
+library(jpndistrict)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+### jpndistrictパッケージ
+- [参考](https://oku.edu.mie-u.ac.jp/~okumura/stat/jpndistrict.html)
+
+```{r chunk2, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#東京都のデータを取り出す1
+tokyo.bnd <- jpn_pref(admin_name = "東京都") #行政界のポリゴンデータ
+#データの構造と内容を確認
+names(tokyo.bnd)
+str(tokyo.bnd)
+head(tokyo.bnd)
+
+#データを描画
+plot(tokyo.bnd["city"])
+    #島しょ部を含むため描画範囲が広くなってしまう
+
+#東京都のデータを取り出す2
+tokyo.bnd1 <- filter(tokyo.bnd, city_code < 13350) #大島町(13361以降を除いたデータの生成)
+
+plot(tokyo.bnd1["city"])
+
+```
+
+
+
+```{r chunk3, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#空間座標系の確認
+st_crs(tokyo.bnd1) #EPS4326=WGS84であることを確認
+tokyo.bnd1 <- st_set_crs(tokyo.bnd1, 6668)     #JGD2011に変更
+
+#JGD2011による平面直角座標への変換
+tokyo.bnd1z9 <- st_transform(tokyo.bnd1, 2451) #2451=第9系のコード
+
+#以上をパイプを利用しまとめることも可能
+# tokyo.bnd1z9 <- tokyo.bnd1 %>%
+#                     st_set_crs(6668) %>%
+#                     st_transform(2451)
+
+#変換後の座標値を確認
+st_geometry(tokyo.bnd1z9)
+
+#変換後のデータの描画
+plot(tokyo.bnd1z9["city"])
+
+#白地図の描画
+plot(tokyo.bnd1z9["geometry"])
+title("東京都区市町村白地図")
+
+#境界線の線幅・色指定・面の塗りつぶし指定、スケール・方位記号追加
+plot(tokyo.bnd1z9["geometry"], lwd = 1, border = "grey80", col = "wheat2") #lwd:線幅、border:境界線色、col:塗りつぶし色
+title("東京都区市町村地図")
+map.scale(-70000, -50000, 20000, "km", 4, 5)
+north.arrow(5000, -15000, 1000, lab = "N", col = "white")
+
+#カラーパレットの確認
+# colors()
+```
+
+### 座標系のEPSGコード
+- WRS84: 4326
+- JGD2000:4612
+- **JGD2011:6668**
+- **平面直角座標系(国家座標):1～19系で異なる([参照](https://tmizu23.hatenablog.com/entry/20091215/1260868350))
+
+## ggplot2パッケージによる地図の描画
+```{r chunk4, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+fuchu.bnd <- filter(tokyo.bnd1z9, city_code == "13206") #府中市のポリゴンデータを抽出
+
+ggplot(tokyo.bnd1)+
+  geom_sf(fill = NA) +                          #塗りつぶしなし
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"), #方位記号幅(デフォルトはheight,widthともに1.5cm)
+                         pad_x = unit(1, "cm"), #方位記号位置(デフォルトはpadding = 0.25cm)
+                         pad_y = unit(1, "cm")  #方位記号位置(デフォルトはpadding = 0.25cm)
+                         ) +
+#府中市の輪郭を赤線で描画
+    geom_sf(data = fuchu.bnd,
+          col = "red",
+          fill = NA,
+          cex = 1,
+          show.legend = FALSE) +
+  theme_bw()
+  
+```
+
+- [参考1](https://kazutan.github.io/kazutanR/ggplot2_links.html)
+- [ggplot2チートシート日本語版(PDF)](https://rstudio.com/wp-content/uploads/2016/10/ggplot2-cheatsheet-2.0-ja.pdf)
+
+## コロプレス図の描画
+
+###区市町村別遺跡数集計データ(part2参照)
+
+```{r chunk5, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#区市町村別遺跡集計データの読み込みとポリゴンデータへの連結
+Tokyo.summary <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo_summary.csv", setclass= "tbl_df", encoding = "UTF-8")
+
+Tokyo.summary <- Tokyo.summary %>%
+                 rename(city_code = 自治体コード)        　#列名変更
+tokyo.bnd1$city_code <- as.integer(tokyo.bnd1$city_code)   #列のデータ型一致
+Tokyo.summary <- left_join(tokyo.bnd1, dplyr::select(Tokyo.summary, -区市町村名), by = "city_code")
+
+head(Tokyo.summary)
+```
+
+###連結したデータを視覚化
+
+```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+ggplot(Tokyo.summary)+
+  geom_sf(aes(fill = cut_number(合計, n = 8))) + #遺跡数合計で色分け
+  scale_fill_grey(start = 0.8, end = 0.2) +
+  labs(x = "経度",
+       y = "緯度",
+       title = "区市町村別遺跡数合計"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+  
+```
+###カラー化+区市町村名表示
+
+```{r chunk7, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#各自治体の中心座標取得
+tokyo.pts <- Tokyo.summary %>%
+             st_point_on_surface() %>%                          #ポリゴンの範囲内の中心座標を取得
+             dplyr::select(-pref_code, -prefecture, -city_code)
+tokyo.coord <- st_coordinates(tokyo.pts)                        #行列データからX,Y座標を抽出
+tokyo.pts <- cbind(tokyo.pts, tokyo.coord)                      #抽出したX,Y座標と元データを結合
+rm(tokyo.coord)
+
+#地図描画
+ggplot()+
+  geom_sf(data = Tokyo.summary,
+          aes(fill = cut_number(合計, n = 8))) + #遺跡数合計で色分け
+  scale_fill_viridis_d(begin = 0.8, end = 0.3) + #カラーチャートの開始値と終値を指定(降順)
+  geom_text(data = tokyo.pts,                    #ラベルの表示設定
+            aes(x = X,
+                y = Y,
+                label = city),
+            size = 3) +
+  labs(x = "経度",
+       y = "緯度",
+       title = "区市町村別遺跡数合計"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+  
+```
+
+###バブルグラフ風
+
+```{r chunk8, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+ggplot()+
+  geom_sf(data = Tokyo.summary,
+          fill = "white") +                 #区市町村ポリゴン白で塗りつぶし
+  geom_point(data = tokyo.pts,
+             aes(x = X,
+                 y = Y,
+                 size = 合計,               #遺跡数合計＝ポイントサイズ
+                 color = 合計)              #色も反映
+             ) +
+  scale_color_viridis_c(begin = 0.8, end = 0.3) + #カラースケールはchunk7と同じ
+  scale_size(guide = FALSE) +               #サイズの凡例は非表示
+  labs(x = "経度",
+       y = "緯度",
+       title = "区市町村別遺跡数合計"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_grey()
+  
+```
+
+###時代別遺跡数塗分け+ファセット
+
+```{r chunk9, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#旧石器
+p1 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          aes(fill = cut_number(旧石器, n = 5))) + #遺跡数合計で色分け
+  scale_fill_viridis_d(begin = 1, end = 0) +       #カラーチャートの開始値と終値を指定(降順)
+  labs(x = "経度",
+       y = "緯度",
+       title = "旧石器時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+#縄文
+p2 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          aes(fill = cut_number(縄文, n = 5))) + #遺跡数合計で色分け
+  scale_fill_viridis_d(begin = 1, end = 0) +     #カラーチャートの開始値と終値を指定(降順)
+  labs(x = "経度",
+       y = "緯度",
+       title = "縄文時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+#弥生
+p3 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          aes(fill = cut_number(弥生, n = 4))) + #遺跡数合計で色分け
+  scale_fill_viridis_d(begin = 1, end = 0) +     #カラーチャートの開始値と終値を指定(降順)
+  labs(x = "経度",
+       y = "緯度",
+       title = "弥生時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+#古墳
+p4 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          aes(fill = cut_number(古墳, n = 5))) + #遺跡数合計で色分け
+  scale_fill_viridis_d(begin = 1, end = 0) +     #カラーチャートの開始値と終値を指定(降順)
+  labs(x = "経度",
+       y = "緯度",
+       title = "古墳時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+
+plot_grid(p1, p2, p3, p4)
+  
+```
+
+###時代別遺跡数バブル+ファセット
+
+```{r chunk10, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#旧石器
+p1 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          fill = "white") +
+  geom_point(data = tokyo.pts,
+             aes(x = X,
+                 y = Y,
+                 size = 旧石器,
+                 color = 旧石器)
+             ) +
+  scale_color_viridis_c(begin = 1, end = 0) + #カラースケールはchunk7と同じ
+  scale_size(guide = FALSE) +
+  labs(x = "経度",
+       y = "緯度",
+       title = "旧石器時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+#縄文
+p2 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          fill = "white") +
+  geom_point(data = tokyo.pts,
+             aes(x = X,
+                 y = Y,
+                 size = 縄文,
+                 color = 縄文)
+             ) +
+  scale_color_viridis_c(begin = 1, end = 0) + #カラースケールはchunk7と同じ
+  scale_size(guide = FALSE) +
+  labs(x = "経度",
+       y = "緯度",
+       title = "縄文時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+#弥生
+p3 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          fill = "white") +
+  geom_point(data = tokyo.pts,
+             aes(x = X,
+                 y = Y,
+                 size = 弥生,
+                 color = 弥生)
+             ) +
+  scale_color_viridis_c(begin = 1, end = 0) + #カラースケールはchunk7と同じ
+  scale_size(guide = FALSE) +
+  labs(x = "経度",
+       y = "緯度",
+       title = "弥生時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+#古墳
+p4 <- ggplot() +
+  geom_sf(data = Tokyo.summary,
+          fill = "white") +
+  geom_point(data = tokyo.pts,
+             aes(x = X,
+                 y = Y,
+                 size = 古墳,
+                 color = 古墳)
+             ) +
+  scale_color_viridis_c(begin = 1, end = 0) + #カラースケールはchunk7と同じ
+  scale_size(guide = FALSE) +
+  labs(x = "経度",
+       y = "緯度",
+       title = "古墳時代遺跡数"
+       ) +
+  annotation_scale() +
+  annotation_north_arrow(width = unit(1, "cm"),
+                         pad_x = unit(0.5, "cm"),
+                         pad_y = unit(1, "cm")
+                         ) +
+  theme_bw()
+
+plot_grid(p1, p2, p3, p4)
+  
+```
+
+# 遺跡データ(ポイント)の描画と分析
+
+## データの読み込みと下処理
+
+```{r chunk11, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+TokyoTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo_total.csv", setclass= "tbl_df", encoding = "UTF-8") # TokyoTotalに原データcsvを読み込み、エンコードの指定に注意
+
+Tokyo.sf <- st_as_sf(drop_na(TokyoTotal),              # 座標値空白データは変換できないため`drop_na()`で除外しておく
+                     coords = c("経度", "緯度"),
+                     crs = 6668)                       # EPSG:6668=JGD2011
+Tokyo.sf <- rename(Tokyo.sf, "遺構" = "主な遺構/概要") #列名から/を除去
+
+str(Tokyo.sf)
+```
+
+## mapviewパッケージによるインタラクティブな地図表示
+
+```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+mapview(Tokyo.sf)
+
+```
+
+## leafletパッケージによるインタラクティブな地理院タイル地図表示
+
+```{r chunk13, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+# 出典表記
+atr <- paste0(
+  "<a href='http://maps.gsi.go.jp/development/ichiran.html' target='_blank'>",
+  "地理院タイル",
+  "</a>"
+)
+
+#地理院地図（単色地図）上での表示（基本）
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+           attribution = atr) %>%
+#addMarkers()は描画に時間がかかるためaddCirucleMarkers()を使用
+  addCircleMarkers(radius = 1, color = "#09f", weight = 5) %>%
+  setView(lng = 139.4, lat = 35.68944, zoom = 10) %>%
+#区市町村ポリゴンの追加
+  addPolygons(data = tokyo.bnd1,
+              fillOpacity = 0,
+              weight = 1) %>%
+#ミニマップの追加
+  addMiniMap(position="bottomleft") %>%                     #position=""で表示位置を指定
+#経緯線・スケールバーの追加
+  addSimpleGraticule(interval = 0.25) %>%                   #interval = 0.25→経度緯度0.25°間隔を指定
+  addScaleBar(position="bottomright",                       #position=""で表示位置を指定
+              options = scaleBarOptions(imperial = FALSE)   #options=scaleBarOptions(imperial = FALSE)→スケールバーのマイル表示をオフ（デフォルトはオン）
+              )
+
+```
+
+### マウスオーバーで遺跡名を表示、クリックで時代を表示
+
+```{r chunk14, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", #地理院地図（単色地図）
+           attribution = atr) %>%
+  addCircleMarkers(radius = 3, color = "#09f", weight = 8,
+                   popup = Tokyo.sf$時代, label = paste(Tokyo.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.58, lat = 35.64, zoom = 15) %>%
+  addMiniMap(position="bottomleft") %>% 
+  addSimpleGraticule(interval = 0.0167) %>%
+  addScaleBar(position="bottomright",
+              options = scaleBarOptions(imperial = FALSE)
+              )
+```
+
+
+### マーカーの変更
+
+```{r chunk15, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", #地理院地図（単色地図）
+           attribution = atr) %>%
+  addMarkers() %>%
+  setView(lng = 139.58, lat = 35.64, zoom = 15) %>%
+  addMiniMap(position="bottomleft") %>% 
+  addSimpleGraticule(interval = 0.0167) %>%
+  addScaleBar(position="bottomright",
+              options = scaleBarOptions(imperial = FALSE)
+              )
+```
+
+### マーカーのクラスター表示
+
+```{r chunk16, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+           attribution = atr) %>%
+  addMarkers(clusterOptions = markerClusterOptions()) %>%
+  setView(lng = 139.4, lat = 35.68944, zoom = 10) %>%
+  addMiniMap(position="bottomleft") %>% 
+  addSimpleGraticule(interval = 0.25) %>%
+  addScaleBar(position="bottomright",
+              options = scaleBarOptions(imperial = FALSE)
+              )
+```
+### 背景タイル地図の変更
+
+- [地理院タイル地図一覧](https://maps.gsi.go.jp/development/ichiran.html)
+- [Ground Interface.（川だけ地図、川だけ地形地図）](https://www.gridscapes.net/)
+- [DamMaps:川と流域地図](http://tiles.dammaps.jp/ryuiki/)
+
+```{r chunk17, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#色別標高図
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png",
+           attribution = atr) %>%
+  addCircleMarkers(radius = 1, color = "#f42", weight = 3,
+                   popup = Tokyo.sf$時代, label = paste(Tokyo.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.4, lat = 35.68944, zoom = 11) %>%
+  addPolygons(data = tokyo.bnd1,
+              color = "#000",
+              fillOpacity = 0,
+              weight = 1) %>%
+  addMiniMap(position="bottomleft") %>% 
+  addSimpleGraticule(interval = 0.16667) %>%
+  addScaleBar(position="bottomright",
+              options = scaleBarOptions(imperial = FALSE)
+              )
+
+#土地条件図
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/lcm25k/{z}/{x}/{y}.png",
+           attribution = atr) %>%
+  addCircleMarkers(radius = 5, color = "#00f", weight = 4,
+                   popup = Tokyo.sf$時代, label = paste(Tokyo.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.58, lat = 35.64, zoom = 15) %>%
+  addMiniMap(position="bottomright") %>%
+  addSimpleGraticule(interval = 0.0167) %>%
+  addScaleBar(position="bottomleft")
+
+#シームレス航空写真（zoom=14~18）
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+           attribution = atr) %>%
+  addCircleMarkers(radius = 4, color = "#f00", weight = 2,
+                   popup = Tokyo.sf$時代, label = paste(Tokyo.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.6, lat = 35.63, zoom = 15) %>%
+  addMiniMap(position="bottomright") %>%
+  addSimpleGraticule(interval = 0.016667) %>%
+  addScaleBar(position="bottomleft")
+
+#ランドサット衛星モザイク画像（zoom=9~13）
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+           attribution = atr) %>%
+  addCircleMarkers(radius = 1, color = "#f42", weight = 3,
+                   popup = Tokyo.sf$時代, label = paste(Tokyo.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.4, lat = 35.68944, zoom = 11) %>%
+  addPolygons(data = tokyo.bnd1,
+              color = "#fff",
+              fillOpacity = 0,
+              weight = 1) %>%
+  addMiniMap(position="bottomleft") %>% 
+  addSimpleGraticule(interval = 0.16667) %>%
+  addScaleBar(position="bottomright",
+              options = scaleBarOptions(imperial = FALSE)
+              )
+
+#過去の航空写真（zoom=10~17）※ここでは例として1945～50年の航空写真を表示
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/ort_USA10/{z}/{x}/{y}.png",
+           attribution = atr) %>%
+  addCircleMarkers(radius = 4, color = "#f00", weight = 2,
+                   popup = Tokyo.sf$時代, label = paste(Tokyo.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.61, lat = 35.63, zoom = 14) %>%
+  addMiniMap(position="bottomright") %>%
+    addSimpleGraticule(interval = 0.03333) %>%
+addScaleBar(position="bottomleft")
+
+#川と流域地図+色別標高図
+# 出典表記
+atr3 <- paste0(
+  atr,
+  "・",
+  "<a href='https://www.gridscapes.net/' target='_blank'>",
+  "川だけ地形地図",
+  "</a>"
+)
+
+leaflet(Tokyo.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png") %>%
+    addTiles("http://tiles.dammaps.jp/ryuiki_t/1/{z}/{x}/{y}.png",
+           attribution = atr3) %>%
+  addCircleMarkers(radius = 1, color = "#f42", weight = 3,
+                   popup = Tokyo.sf$時代, label = paste(Tokyo.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.4, lat = 35.68944, zoom = 11) %>%
+  addMiniMap(position="bottomleft") %>% 
+  addSimpleGraticule(interval = 0.16667) %>%
+  addScaleBar(position="bottomright",
+              options = scaleBarOptions(imperial = FALSE)
+              )
+```
+
+## データの検索と地図表示
+
+```{r chunk18, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+Kofun.sf <- Tokyo.sf %>%
+  filter(str_detect(種別,"古墳")) %>%
+  mutate(墳形 = 
+             if_else(condition = str_detect(遺構,"前方後円墳"), 
+                     true = "前方後円墳",
+                     false = 
+                       if_else(condition = str_detect(遺構,"前方後方墳"),
+                               true = "前方後方墳",
+                               false =
+                                 if_else(condition = str_detect(遺構,"上円下方墳"),
+                                         true = "上円下方墳",
+                                         false =
+                                           if_else(condition = str_detect(遺構,"円墳"),
+                                                   true = "円墳",
+                                                   false =
+                                                     if_else(condition = str_detect(遺構,"方墳"),
+                                                             true = "方墳",
+                                                             false = "NA")
+                                                   )
+                                         )
+                               )
+                     )
+           )
+Kofun.sf$墳形 <- Kofun.sf$墳形 %>%
+                 as.factor() %>%                                                          #新たに追加した墳形列を因子型に変換
+                 factor(levels = c("前方後円墳","前方後方墳","上円下方墳","円墳","方墳")) #因子型のデータの順列を指定
+str(Kofun.sf)
+
+colpal <- colorFactor(palette=c("orange","black","white","red","blue"), domain=Kofun.sf$墳形) #墳形列データにカラーパレットを割り当て
+
+leaflet(Kofun.sf) %>%
+  addTiles("https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png",
+           attribution = atr) %>%
+  addCircleMarkers(radius = 4, weight = 2, color = ~colpal(墳形),
+                   popup = Kofun.sf$遺構, label = paste(Kofun.sf$遺跡名)
+                   ) %>%
+  setView(lng = 139.55, lat = 35.68944, zoom = 11) %>%
+  addLegend(position='topright', pal=colpal, values=~墳形) %>% #凡例を追加
+  addMiniMap(position="bottomleft") %>% 
+  addSimpleGraticule(interval = 0.25) %>%
+  addScaleBar(position="bottomright",
+              options = scaleBarOptions(imperial = FALSE)
+              )
+
+```
+
+# 遺跡分布パターンの空間分析
+
+```{r  chunk19, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#平面直角座標変換
+tokyo.sfz9 <- Tokyo.sf %>%
+              st_transform(2451) #国家座標第9系に変換
+#時代別データセット
+tokyo.pal <- tokyo.sfz9 %>%
+             filter(str_detect(時代, "旧石器時代")) #旧石器
+tokyo.jom <- tokyo.sfz9 %>%
+             filter(str_detect(時代, "縄文時代")) #縄文
+tokyo.yay <- tokyo.sfz9 %>%
+             filter(str_detect(時代, "縄文時代")) #縄文
+tokyo.jom <- tokyo.sfz9 %>%
+             filter(str_detect(時代, "縄文時代")) #縄文
+
+tokyo.palkd <- kde.points(tokyo.pal, lims = NULL)
+
+```
+
