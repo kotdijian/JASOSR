@@ -350,7 +350,7 @@ summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分
     - `data`は、対象とするデータセットをオブジェクト名で指定します。今回は`TokyoTotal`です。
     - `...`はフィルターの条件を指定します。
 
-フィルターを実行した結果を、あらたなオブジェクトに格納してテ保管することで、原データとフィルター後のデータセットを保持します。以下のチャンクを実行してみましょう。
+フィルターを実行した結果を、あらたなオブジェクトに格納して保管することで、原データとフィルター後のデータセットを保持します。以下のチャンクを実行してみましょう。
 
 ```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
@@ -1020,15 +1020,24 @@ rm(Tokyo.sumRiverX)
 まず次のチャンクを実行すると、データフレームが縦長に変換されます。
 
 ```{r chunk25, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
-Tokyo.sumRiver3 <- rename(Tokyo.sumRiver2, "0旧石器" = 旧石器, "1縄文" = 縄文, "2弥生" = 弥生, "3古墳" = 古墳, "4奈良" = 奈良, "5平安" = 平安, "6中世" = 中世, "7近世" = 近世, "8不明" = 不明) #昇順に並び替えるために時代列名を変更
+# Tokyo.sumRiver3 <- rename(Tokyo.sumRiver2, "0旧石器" = 旧石器, "1縄文" = 縄文, "2弥生" = 弥生, "3古墳" = 古墳, "4奈良" = 奈良, "5平安" = 平安, "6中世" = 中世, "7近世" = 近世, "8不明" = 不明) #昇順に並び替えるために時代列名を変更→因子型に変更
 
-Tokyo.sumRiver3 <- gather(Tokyo.sumRiver3, key = 時代, value = 遺跡数, -水系)
+Tokyo.sumRiver3 <- gather(Tokyo.sumRiver2, key = 時代, value = 遺跡数, -水系)
 
 head(Tokyo.sumRiver3)
 ```
 次に、時代を縦軸(行)、水系を横軸(列)に入れ替えます。水系ごとの時代別の遺跡数の推移が可視化されます。
 
+※2020/10/31追加：なおこれまで「時代」列は文字列(chr)型として扱ってきましたが、ここでは表の順序を「時代」列で指定するために**因子(factor)型**に変更します。因子型は数値や文字(通常は文字コード順)と異なり指定した順列として扱うことが可能になります。1038行目で`factor()`関数数の因数`levels()`により順列を指定しています。ここでは文字の行列のため`levels = c("###", "###")`と指定しています。
+
 ```{r chunk26, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#時代列を因子(factor)型に変更
+Tokyo.sumRiver3$時代 <- as.factor(Tokyo.sumRiver3$時代)
+
+#因子型のデータに順列を与える（factor(object, levels = c())
+Tokyo.sumRiver3$時代 <- factor(Tokyo.sumRiver3$時代, levels = c("旧石器", "縄文", "弥生", "古墳", "奈良", "平安", "中世", "近世", "不明"))
+
+#縦長のデータを横長に変換(spread())
 Tokyo.sumRiver3 <- spread(Tokyo.sumRiver3, key = 水系, value = 遺跡数)
 
 #並べ替え
@@ -1098,7 +1107,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 <- Tokyo.Yshukoubo %>% 
         group_by(自治体コード) %>% 
-        count() %>% 
+        count %>% 
         rename("方形周溝墓" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
   
@@ -1110,7 +1119,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 <- Tokyo.Kkofun %>% 
         group_by(自治体コード) %>% 
-        tally %>% 
+        count() %>% 
         rename("古墳" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
   
@@ -1122,7 +1131,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 <- Tokyo.Kyokoana %>% 
         group_by(自治体コード) %>% 
-        tally %>% 
+        count %>% 
         rename("横穴墓" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
   
@@ -1134,7 +1143,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 <- Tokyo.Mjokan %>% 
         group_by(自治体コード) %>% 
-        tally %>% 
+        count %>% 
         rename("城館" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
   
@@ -1145,7 +1154,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 <- Tokyo.Mtsuka %>% 
         group_by(自治体コード) %>% 
-        tally %>% 
+        count %>% 
         rename("塚" = "n")
       Tokyo.sp <- left_join(Tokyo.sp, Tokyo.st2, by = "自治体コード")
 
