@@ -4,10 +4,14 @@ class: center, middle, inverse
 
 ---
 ### FOSS4G 2020 Japan Online チュートリアルデイ 
-# オンラインリソースによる遺跡地図作成実習
+# オンラインリソースによる
+# 遺跡地図作成実習
 2020/11/07
+
 [FOSS4G 2020 Japan Online チュートリアルデイ公式ページ](https://www.osgeo.jp/events/foss4g-2020/foss4g-2020-japan-online/foss4g-japan-2020-online-tutorial-day)
+
 [JASOSRリポジトリページ](https://kotdijian.github.io/JASOSR/)
+
 [GoogleDriveサンプルデータ](https://bit.ly/2TVoRri)    
 
 ---
@@ -38,8 +42,13 @@ layout: false
 ## 2.考古学研究のリソース
 
 #### 調べる対象はべきどれだけあるのか?
+
+--
+
 1. NDL Search：タイトル=考古学 AND 出版地=日本, データベース=国立国会図書館オンライン, 資料種別=本, 所蔵館=国立国会図書館 or 他機関  
 2. CiNii Books, タイトル=考古学, 資料種別=図書・雑誌, 言語種別=日本語  
+
+--
 
 |年代|NDL Search|CiNii Books|増加率N|増加率C|
 |:---------:|----:|----:|-----:|-----:|
@@ -73,7 +82,7 @@ layout: false
 
 ### この実習で得たスキルで作成したデータは公開・共有しよう!!  
 
---
+---
 ###### 4
 ## 2.考古学研究のリソース2
 
@@ -186,8 +195,8 @@ layout: false
     * 自分で操作できる、シンプルなデータファイル(.csv)で利用できる  
 
 ---
-###### 6
-## 3.手順
+###### 8
+## 5.手順
 * リストを作る：今日は「[東京都遺跡地図](https://tokyo-iseki.metro.tokyo.lg.jp/)」を利用します  
 
     * 位置情報として「住所」を利用します
