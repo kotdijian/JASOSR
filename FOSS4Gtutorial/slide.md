@@ -10,6 +10,8 @@ class: center, middle, inverse
 
 [FOSS4G 2020 Japan Online チュートリアルデイ公式ページ](https://www.osgeo.jp/events/foss4g-2020/foss4g-2020-japan-online/foss4g-japan-2020-online-tutorial-day)
 
+[このスライド](https://kotdijian.github.io/JASOSR//FOSS4Gtutorial)
+
 [JASOSRリポジトリページ](https://kotdijian.github.io/JASOSR/)
 
 [GoogleDriveサンプルデータ](https://bit.ly/2TVoRri)    
