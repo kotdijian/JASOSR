@@ -385,12 +385,13 @@ summary {
 <hr />
 <div id="はじめに" class="section level2">
 <h2>0.はじめに</h2>
-<p>これは、<a href="https://3dlm.peatix.com/">考古学・文化財のためのデータサイエンス・サロンオンライン#03 オープンリソースによる遺跡地図作成実習part2</a>の教材資料として作成されたRマークダウン・ドキュメントです。 - <a href="https://kazutan.github.io/kazutanR/Rmd_intro.html">Rマークダウンとは?</a><br />
-- <a href="https://rstudio.com/wp-content/uploads/2016/11/Rmarkdown-cheatsheet-2.0_ja.pdf">RStudio公式によるRマークダウンチートシート</a></p>
-<p>以下の内容を含みます。<br />
-1. R/RStudioの基本操作<br />
-2. データの読み込み<br />
-3.</p>
+</div>
+<div id="これは考古学文化財のためのデータサイエンスサロンオンライン03オープンリソースによる遺跡地図作成実習part2の教材資料として作成されたrマークダウンドキュメントです" class="section level2">
+<h2>これは、<a href="https://3dlm.peatix.com/">考古学・文化財のためのデータサイエンス・サロンオンライン#03オープンリソースによる遺跡地図作成実習part2</a>の教材資料として作成されたRマークダウン・ドキュメントです。</h2>
+</div>
+<div id="rマークダウンとは" class="section level2">
+<h2><a href="https://kazutan.github.io/kazutanR/Rmd_intro.html">Rマークダウンとは?</a></h2>
+<p><a href="https://rstudio.com/wp-content/uploads/2016/11/Rmarkdown-cheatsheet-2.0_ja.pdf">RStudio公式によるRマークダウンチートシート</a></p>
 <p>実習では、<a href="https://tokyo-iseki.metro.tokyo.lg.jp/">東京都遺跡地図情報インターネット提供サービス</a>の収録情報を<a href="https://github.com/kotdijian/JASOSR/tree/master/13Tokyo">リスト化したもの</a>を整理・加工するためのコードを通じて、Rによるデータ操作を学びます。</p>
 <p>なお本資料は、東京学芸大学2020年度春学期開講「地域考古学B」課外補講のために作成したものをベースに、「考古学・文化財のためのデータサイエンス・サロン」向けに改変しました。</p>
 <hr />
@@ -427,7 +428,7 @@ summary {
 <p><code>&lt;-</code>は、左側に示された<strong>オブジェクト</strong>に、右側の入力を格納することを指示する<strong>代入演算子</strong>です。</p>
 <p>この3行の<strong>コード</strong>は、<code>x</code>に1、<code>y</code>に2を代入し、<code>z</code>に<code>x + y</code>の結果を代入するものです。</p>
 <p>そしてこの3行のコードを実行しても、先ほどの計算(<code>1 + 2</code>)の時のように結果が表示されません。代わりに、右上の<strong>Environment</strong>ウインドウ(pane)に、<code>x</code>, <code>y</code>, <code>z</code>と、それぞれの入力結果が表示されているはずです。</p>
-<p>次に、’print(x)<code>と入力して見てください。</code>x<code>の値が表示されます。単に</code>x`と入力するだけでも、同じ結果を得られます。</p>
+<p>次に、’print(x)<code>と入力して見てください。</code>x<code>の値が表示されます。単に</code>x `と入力するだけでも、同じ結果を得られます。</p>
 </div>
 <div id="文字データと行列データ" class="section level3">
 <h3>2-3.文字データと行列データ</h3>
@@ -684,7 +685,7 @@ library(&quot;bit64&quot;)        #UID13桁対応</code></pre>
 </div>
 <div id="データの取得と確認" class="section level2">
 <h2>4.データの取得と確認</h2>
-<p>リポジトリから東京都遺跡地図全データ(20201017現在、島しょ部を除く6283件)のCSVファイルを取得します。</p>
+<p>リポジトリから東京都遺跡地図全データ(20201017現在、島しょ部を除く6280件)のCSVファイルを取得します。</p>
 <p>これは<a href="https://github.com/kotdijian/JASOSR/tree/master/MappingWokrshop">遺跡地図作成実習part1</a>でも取り扱ったものです。</p>
 <pre class="r"><code>TokyoTotal &lt;- import(&quot;https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo_total.csv&quot;, setclass= &quot;tbl_df&quot;, encoding = &quot;UTF-8&quot;) # TokyoTotalに原データcsvを読み込み、エンコードの指定に注意</code></pre>
 <p>ここでは<code>rio</code>パッケージの<code>import</code>関数を使用しています。他のパッケージの関数と区別するため<code>rio::import()</code>と記述することもできます。</p>
@@ -696,22 +697,22 @@ library(&quot;bit64&quot;)        #UID13桁対応</code></pre>
 <p>以下のチャンクをそれぞれ実行してください。</p>
 <pre class="r"><code>#データフレームのレコード数(行数)を確認
 nrow(TokyoTotal)</code></pre>
-<pre><code>## [1] 6280</code></pre>
+<pre><code>## [1] 6291</code></pre>
 <pre class="r"><code># データフレームの構造を確認
 str(TokyoTotal)</code></pre>
-<pre><code>## tibble [6,280 x 12] (S3: tbl_df/tbl/data.frame)
-##  $ JASID        :integer64 [1:6280] 13101000100 13101000200 13101000300 13101000400 13101000500 13101000600 13101000800 13101000900 ... 
-##  $ 自治体コード : int [1:6280] 13101 13101 13101 13101 13101 13101 13101 13101 13101 13101 ...
-##  $ 遺跡番号     : chr [1:6280] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
-##  $ ふりがな     : chr [1:6280] &quot;えどじょうあと&quot; &quot;きゅうほんまるにしかいづか&quot; &quot;&quot; &quot;もみじやまいせき&quot; ...
-##  $ 遺跡名       : chr [1:6280] &quot;江戸城跡&quot; &quot;旧本丸西貝塚&quot; &quot;千代田区No.3遺跡&quot; &quot;紅葉山遺跡&quot; ...
-##  $ 所在地       : chr [1:6280] &quot;千代田区 千代田　 皇居外苑　 北の丸公園&quot; &quot;千代田区 千代田&quot; &quot;千代田区 千代田&quot; &quot;千代田区 千代田&quot; ...
-##  $ 時代         : chr [1:6280] &quot;[近世]&quot; &quot;[縄文時代（前期～晩期）]&quot; &quot;[弥生時代]&quot; &quot;[縄文前期]&quot; ...
-##  $ 種別         : chr [1:6280] &quot;城館&quot; &quot;貝塚&quot; &quot;包蔵地&quot; &quot;包蔵地&quot; ...
-##  $ 主な遺構/概要: chr [1:6280] &quot;[近世]建物礎石　敷石遺構　囲状遺構　土留遺構　石組溝　暗渠　城門　城橋　天守台　櫓堀　石塁　石垣　地下室　井戸　上下水道&quot; &quot;&quot; &quot;&quot; &quot;&quot; ...
-##  $ 主な出土品   : chr [1:6280] &quot;縄文土器　弥生土器　土師器　陶磁器　瓦　金属製品　木製品　鉄釘　火箸　簪　笄　チャコ　銭貨&quot; &quot;縄文土器　打斧　石鏃　有溝土錘　骨角器&quot; &quot;弥生土器&quot; &quot;縄文土器&quot; ...
-##  $ 経度         : num [1:6280] 140 140 140 140 140 ...
-##  $ 緯度         : num [1:6280] 35.7 35.7 35.7 35.7 35.7 ...</code></pre>
+<pre><code>## tibble [6,291 x 12] (S3: tbl_df/tbl/data.frame)
+##  $ JASID        :integer64 [1:6291] 13101000100 13101000200 13101000300 13101000400 13101000500 13101000600 13101000800 13101000900 ... 
+##  $ 自治体コード : int [1:6291] 13101 13101 13101 13101 13101 13101 13101 13101 13101 13101 ...
+##  $ 遺跡番号     : chr [1:6291] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##  $ ふりがな     : chr [1:6291] &quot;えどじょうあと&quot; &quot;きゅうほんまるにしかいづか&quot; &quot;&quot; &quot;もみじやまいせき&quot; ...
+##  $ 遺跡名       : chr [1:6291] &quot;江戸城跡&quot; &quot;旧本丸西貝塚&quot; &quot;千代田区No.3遺跡&quot; &quot;紅葉山遺跡&quot; ...
+##  $ 所在地       : chr [1:6291] &quot;千代田区 千代田　 皇居外苑　 北の丸公園&quot; &quot;千代田区 千代田&quot; &quot;千代田区 千代田&quot; &quot;千代田区 千代田&quot; ...
+##  $ 時代         : chr [1:6291] &quot;[近世]&quot; &quot;[縄文時代（前期～晩期）]&quot; &quot;[弥生時代]&quot; &quot;[縄文前期]&quot; ...
+##  $ 種別         : chr [1:6291] &quot;城館&quot; &quot;貝塚&quot; &quot;包蔵地&quot; &quot;包蔵地&quot; ...
+##  $ 主な遺構/概要: chr [1:6291] &quot;[近世]建物礎石　敷石遺構　囲状遺構　土留遺構　石組溝　暗渠　城門　城橋　天守台　櫓堀　石塁　石垣　地下室　井戸　上下水道&quot; &quot;&quot; &quot;&quot; &quot;&quot; ...
+##  $ 主な出土品   : chr [1:6291] &quot;縄文土器　弥生土器　土師器　陶磁器　瓦　金属製品　木製品　鉄釘　火箸　簪　笄　チャコ　銭貨&quot; &quot;縄文土器　打斧　石鏃　有溝土錘　骨角器&quot; &quot;弥生土器&quot; &quot;縄文土器&quot; ...
+##  $ 経度         : num [1:6291] 140 140 140 140 140 ...
+##  $ 緯度         : num [1:6291] 35.7 35.7 35.7 35.7 35.7 ...</code></pre>
 <pre class="r"><code>#データフレームの先頭数行の内容を表示
 head(TokyoTotal)</code></pre>
 <pre><code>## # A tibble: 6 x 12
@@ -727,29 +728,26 @@ head(TokyoTotal)</code></pre>
 <pre class="r"><code>#データフレームの概要・基礎統計量を表示
 summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分位値、中央・平均値が計算される</code></pre>
 <pre><code>##      JASID               自治体コード     遺跡番号           ふりがな        
-##  Min.   :  1310309502   Min.   :13101   Length:6280        Length:6280       
-##  1st Qu.: 13112026900   1st Qu.:13112   Class :character   Class :character  
-##  Median : 13201079600   Median :13201   Mode  :character   Mode  :character  
-##  Mean   : 13192145090   Mean   :13175                                        
-##  3rd Qu.: 13209099400   3rd Qu.:13209                                        
+##  Min.   :  1310309502   Min.   :13101   Length:6291        Length:6291       
+##  1st Qu.: 13112027400   1st Qu.:13112   Class :character   Class :character  
+##  Median : 13201080200   Median :13201   Mode  :character   Mode  :character  
+##  Mean   : 13192168045   Mean   :13175                                        
+##  3rd Qu.: 13209099100   3rd Qu.:13209                                        
 ##  Max.   :133080001000   Max.   :13308                                        
-##                                                                              
 ##     遺跡名             所在地              時代               種別          
-##  Length:6280        Length:6280        Length:6280        Length:6280       
+##  Length:6291        Length:6291        Length:6291        Length:6291       
 ##  Class :character   Class :character   Class :character   Class :character  
 ##  Mode  :character   Mode  :character   Mode  :character   Mode  :character  
 ##                                                                             
 ##                                                                             
 ##                                                                             
-##                                                                             
 ##  主な遺構/概要       主な出土品             経度            緯度      
-##  Length:6280        Length:6280        Min.   :139.0   Min.   :35.50  
+##  Length:6291        Length:6291        Min.   :139.0   Min.   :35.50  
 ##  Class :character   Class :character   1st Qu.:139.4   1st Qu.:35.62  
 ##  Mode  :character   Mode  :character   Median :139.5   Median :35.66  
 ##                                        Mean   :139.5   Mean   :35.67  
 ##                                        3rd Qu.:139.7   3rd Qu.:35.72  
-##                                        Max.   :139.9   Max.   :35.85  
-##                                        NA&#39;s   :2       NA&#39;s   :2</code></pre>
+##                                        Max.   :139.9   Max.   :35.85</code></pre>
 <hr />
 </div>
 <div id="時代別データの抽出" class="section level2">
@@ -757,7 +755,7 @@ summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分
 <div id="データセットと方針の確認" class="section level3">
 <h3>5-1.データセットと方針の確認</h3>
 <p>「東京都遺跡地図」から取得した原データセットでは、一つの「時代」列に、各遺跡の属性項目が列記されています。単一の時代だけの遺跡は一セルに一つのデータですが、多くの遺跡では一セルに複数のデータが含まれています。</p>
-<p>遺跡地図作成実習#1では、<em>GoogleSpreadsheet</em>や<em>Excel</em>のフィルター機能を利用して、部分一致で時代名を検索・抽出し、あらたなシートを作成して.csvで保存するという手順で作業をしました。</p>
+<p>遺跡地図作成実習 #1では、<em>GoogleSpreadsheet</em>や<em>Excel</em>のフィルター機能を利用して、部分一致で時代名を検索・抽出し、あらたなシートを作成して.csvで保存するという手順で作業をしました。</p>
 <p>しかしデータ量が多く、作業の都度、条件指定をしてフィルタリング、コピー・ペーストをするのは手間がかかる上に、手作業ゆえのミスもおきやすいです。そこで、検索や集計を容易にするために、各時代ごとに01ベクトル（その時代の記載があれば1、なければ0）を作成して、TokyoTotalに追加します。</p>
 </div>
 <div id="filter関数による抽出" class="section level3">
@@ -768,7 +766,7 @@ summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分
 
 - `data`は、対象とするデータセットをオブジェクト名で指定します。今回は`TokyoTotal`です。
 - `...`はフィルターの条件を指定します。</code></pre>
-<p>フィルターを実行した結果を、あらたなオブジェクトに格納してテ保管することで、原データとフィルター後のデータセットを保持します。以下のチャンクを実行してみましょう。</p>
+<p>フィルターを実行した結果を、あらたなオブジェクトに格納して保管することで、原データとフィルター後のデータセットを保持します。以下のチャンクを実行してみましょう。</p>
 <pre class="r"><code>TokyoPal1 &lt;- filter(TokyoTotal,時代 == &quot;旧石器時代&quot;)
 
 nrow(TokyoPal1)</code></pre>
@@ -783,13 +781,13 @@ nrow(TokyoPal1)</code></pre>
 </div>
 <div id="str_detect関数を組み合わせて部分一致検索" class="section level3">
 <h3>5-3. str_detect()関数を組み合わせて部分一致検索</h3>
-<p>そこで、抽出条件に<code>str_detect()</code>関数を用います。<code>str_detect()</code>は<strong>Stringr</strong>パッケージの関数です)で、<strong>Tidyverse</strong>パッケージに含まれています。</p>
+<p>そこで、抽出条件に<code>str_detect()</code>関数を用います。<code>str_detect()</code>は<strong>Stringr</strong>パッケージの関数ですで、<strong>Tidyverse</strong>パッケージに含まれています。</p>
 <p>次のチャンクを実行してみましょう。</p>
 <pre class="r"><code>TokyoPal1 &lt;- filter(TokyoTotal, str_detect(時代,&quot;旧石器時代&quot;))
 
 nrow(TokyoPal1)</code></pre>
-<pre><code>## [1] 683</code></pre>
-<p>今度は683件が抽出され、Spreadsheetによるフィルターと同じ結果を得ることができました。なお、なぜ検索条件が<code>[旧石器時代]</code>ではなく、<code>旧石器時代</code>なのかについては次項で説明します。</p>
+<pre><code>## [1] 686</code></pre>
+<p>今度は686件が抽出され、Spreadsheetによるフィルターと同じ結果を得ることができました。なお、なぜ検索条件が<code>[旧石器時代]</code>ではなく、<code>旧石器時代</code>なのかについては次項で説明します。</p>
 </div>
 <div id="正規表現について" class="section level3">
 <h3>5-4. 正規表現について</h3>
@@ -803,21 +801,20 @@ nrow(TokyoPal1)</code></pre>
 <pre class="r"><code>TokyoPal2 &lt;- filter(TokyoTotal, str_detect(時代,&quot;[旧石器時代]&quot;))
 
 nrow(TokyoPal2)</code></pre>
-<pre><code>## [1] 5255</code></pre>
-<p>5256件という数字は、実は<code>旧石器時代</code>のどれか一文字でも含まれているものを抽出したものです。<strong>東京都遺跡地図</strong>で用いられている時代区分は以下の通りなので、<code>中世</code>、<code>近世</code>を含まない遺跡が抽出されたことになります。</p>
+<pre><code>## [1] 5261</code></pre>
+<p>5261件という数字は、実は<code>旧石器時代</code>のどれか一文字でも含まれているものを抽出したものです。<strong>東京都遺跡地図</strong>で用いられている時代区分は以下の通りなので、<code>中世</code>、<code>近世</code>を含まない遺跡が抽出されたことになります。</p>
 </div>
 <div id="東京都遺跡地図の時代区分一覧" class="section level4">
 <h4>東京都遺跡地図の時代区分一覧</h4>
-<pre><code>- 旧石器時代\
-- 縄文時代\
-- 弥生時代\
-- 古墳時代\
-- 奈良時代\
-- 平安時代\
-- 中世\
-- 近世\
-- 不明\</code></pre>
-<p><strong>正規表現</strong>を用いた抽出の実際は、後ほど実習します。</p>
+<pre><code>- 旧石器時代  
+- 縄文時代  
+- 弥生時代  
+- 古墳時代  
+- 奈良時代  
+- 平安時代  
+- 中世  
+- 近世  
+- 時代不明  </code></pre>
 <hr />
 </div>
 </div>
@@ -878,7 +875,7 @@ Tokyo.unknown &lt;- TokyoTotal %&gt;%
 </div>
 <div id="パイプ演算子" class="section level3">
 <h3>6-2.パイプ演算子</h3>
-<p><code>%&gt;%</code>は*<strong>パイプ演算子</strong>または単に<strong>パイプ</strong>と呼ばれるものです。繰り返し使用するオブジェクトを何度も入力・記載しなくて済むので便利です。</p>
+<p><code>%&gt;%</code>は<strong>パイプ演算子</strong>または単に<strong>パイプ</strong>と呼ばれるものです。繰り返し使用するオブジェクトを何度も入力・記載しなくて済むので便利です。</p>
 <p>チャンク10の例について解説します。</p>
 <p><code>TokyoTotal %&gt;% filter(str_detect(時代, &quot;####&quot;)) %&gt;% mutate(旧石器時代 = 1)</code></p>
 <p>このコードでは、まず最初に<code>TokyoTotal</code>というオブジェクトを扱うことを宣言しています。次に<strong>パイプ</strong><code>%&gt;%</code>を用いて宣言を次の<code>filter()</code>関数に受け渡します。</p>
@@ -907,7 +904,7 @@ Tokyo.unknown &lt;- TokyoTotal %&gt;%
 ## 6 1310~        13104 10       &quot;とやまがはら~ 戸山ヶ原上~ 新宿区 百~ [旧石器~ 包蔵地・~ [旧石器時代]集中地点　[縄~
 ## # ... with 4 more variables: 主な出土品 &lt;chr&gt;, 経度 &lt;dbl&gt;, 緯度 &lt;dbl&gt;,
 ## #   旧石器時代 &lt;chr&gt;</code></pre>
-<p>原データデータの<code>TokyoTotal</code>は12列(項目)×6282行(レコード)のデータフレームでしたが、新規作成した<code>Tokyo.palaeolithic</code>は13列×683行のデータフレームとなっています。一番右に新しい列(<code>旧石器時代)</code>が加わり<strong>旧石器</strong>が入力されています。他の時代別のデータフレームも同様です。</p>
+<p>原データの<code>TokyoTotal</code>は12列(項目)×6282行(レコード)のデータフレームでしたが、新規作成した<code>Tokyo.palaeolithic</code>は13列×683行のデータフレームとなっています。一番右に新しい列(<code>旧石器時代)</code>が加わり<strong>旧石器</strong>が入力されています。他の時代別のデータフレームも同様です。</p>
 </div>
 <div id="オブジェクトの連結統合" class="section level3">
 <h3>6-4.オブジェクトの連結・統合</h3>
@@ -990,8 +987,8 @@ head(TokyoTotal.age)</code></pre>
 </div>
 <div id="csvファイルの保存" class="section level3">
 <h3>6-6. .csvファイルの保存</h3>
-<div id="write_csv関数による保存" class="section level4">
-<h4>write_csv()関数による保存</h4>
+<div id="write-_csv関数による保存" class="section level4">
+<h4>write _csv()関数による保存</h4>
 <p>このセクションの最後として、作成したデータを.csv形式で保存し、ウェブGISに読み込めるようにしておきましょう。.csvファイルの書き出しは、<strong>readr</strong>パッケージの<code>write_csv()</code>関数を用います。一般的な(今後の事実上の標準となる)<strong>UTF-8</strong>だけでなく、<strong>ひなたGIS</strong>で読み込める<strong>Shift-JIS</strong>でエンコードした.csvファイルも作成しましょう。</p>
 <p>.csvのファイル保存の基本は以下のチャンクの通りです。これを実行すると、現在、この.Rmdファイルを保存・実行しているフォルダに、<code>13Tokyo.csv</code>(原データ)と<code>13TokyoAge.csv</code>(時代0-1行列データ)が保存されます。</p>
 <pre class="r"><code>#全データ書き出し（UTF-8)
@@ -999,7 +996,7 @@ write.csv(TokyoTotal, &quot;13Tokyo.csv&quot;, row.names=FALSE, fileEncoding = &
 write.csv(TokyoTotal.age, &quot;13TokyoAge.csv&quot;, row.names=FALSE, fileEncoding = &quot;UTF-8&quot;)</code></pre>
 <p>保存先が分からなくなってしまった場合は、<strong>Console</strong>に<code>getwd()</code>と入力してください。現在のワーキングディレクトリのパスが表示されます。</p>
 <p>保存先のフォルダを指定したい場合は、たとえば<code>write.csv(Tokyo.total, &quot;C:/Users/Atsushi Noguchi/Documents/13Tokyo.csv, raw.names = FALSE, fileEncoding = &quot;UTF-8&quot;)</code>のように、ファイル名の前にフォルダのパスを入力してください。ここでは<code>C:Users/Atsushi Noguchi/Documents/</code>がフォルダのパスで、私のマイクロソフトアカウントの<strong>ドキュメント</strong>フォルダを指定しています。</p>
-<p>なおフォルダのパスが分からない時は、Windowsの場合、保存先としたいフォルダを<strong>Shift+マウス右クリック</strong>で表示されるメニューから<strong>パスをコピー</strong>で取得できます。ただし<code>C:\Users\Atsushi Noguchi\Documents</code>というかたちでコピーされるので、<code>\</code>(円マーク)を<code>/</code>(スラッシュ)に変換してください。</p>
+<p>なおフォルダのパスが分からない時は、Windowsの場合、保存先としたいフォルダを<strong>Shift+マウス右クリック</strong>で表示されるメニューから<strong>パスをコピー</strong>で取得できます。ただし<code>C:  Users  Atsushi Noguchi  Documents</code>というかたちでコピーされるので、<code></code>(円マーク)を<code>/</code>(スラッシュ)に変換してください。</p>
 <p>ちなみにチャンク2では原データをGitHubリポジトリから読み込んでいますが、ローカルに保存したファイルを読み込ませたい場合は、<code>import(&quot;ローカルファイルのパス+ファイル名&quot;, setclass = &quot;tbl_df&quot;, encoding = &quot;UTF-8&quot;)</code>と書き換えます。<code>encoding =&quot;&quot;</code>の指定は、対象により適宜変更してください。自分で作成したファイルをローカルに保存・管理する場合は、この方法で対応できます。</p>
 </div>
 <div id="時代別データの保存" class="section level4">
@@ -1065,7 +1062,7 @@ write.csv(Tokyo.unknown, &quot;13Tokyo_unknownSJS.csv&quot;, row.names=FALSE, fi
   count %&gt;%                   #レコード数=遺跡数をカウント
   rename(遺跡数合計 = n) %&gt;%  #集計結果が格納される列の名前をn→遺跡数合計に変更
   arrange(自治体コード)       #自治体コードで昇順に並び替え</code></pre>
-<p><strong>Environment</strong>ウインドウに、<code>Tokyo.summary</code>が表示されるので、開いて内容を確認してみましょう。</p>
+<p><strong>Environment</strong>ウインドウに、<code>Tokyo.summary1</code>が表示されるので、開いて内容を確認してみましょう。</p>
 <p>1列目に<strong>自治体コード</strong>、2列目に<strong>遺跡数合計</strong>が格納されたデータフレームとなっています。しかし自治体コードだけだとぱっと見、把握しづらいですね。そこで自治体コードと自治体名の対応リストを読み込んで、自治体名を付け加えます。</p>
 <pre class="r"><code>#区市町村名追加
   #自治体名の読み込み(more human readable)
@@ -1346,7 +1343,7 @@ formattable(Tokyo.summary1)</code></pre>
 新宿区
 </td>
 <td style="text-align:right;">
-150
+151
 </td>
 <td style="text-align:right;">
 28
@@ -1370,7 +1367,7 @@ formattable(Tokyo.summary1)</code></pre>
 13
 </td>
 <td style="text-align:right;">
-133
+136
 </td>
 <td style="text-align:right;">
 0
@@ -1650,7 +1647,7 @@ formattable(Tokyo.summary1)</code></pre>
 世田谷区
 </td>
 <td style="text-align:right;">
-290
+289
 </td>
 <td style="text-align:right;">
 43
@@ -1662,7 +1659,7 @@ formattable(Tokyo.summary1)</code></pre>
 29
 </td>
 <td style="text-align:right;">
-160
+161
 </td>
 <td style="text-align:right;">
 36
@@ -2296,31 +2293,31 @@ formattable(Tokyo.summary1)</code></pre>
 府中市
 </td>
 <td style="text-align:right;">
-47
+58
 </td>
 <td style="text-align:right;">
-8
+11
 </td>
 <td style="text-align:right;">
-13
+19
 </td>
 <td style="text-align:right;">
 2
 </td>
 <td style="text-align:right;">
-29
+30
+</td>
+<td style="text-align:right;">
+13
+</td>
+<td style="text-align:right;">
+13
+</td>
+<td style="text-align:right;">
+10
 </td>
 <td style="text-align:right;">
 8
-</td>
-<td style="text-align:right;">
-8
-</td>
-<td style="text-align:right;">
-5
-</td>
-<td style="text-align:right;">
-6
 </td>
 <td style="text-align:right;">
 4
@@ -3416,7 +3413,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 新宿区
 </td>
 <td style="text-align:right;">
-150
+151
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 28.00%">28</span>
@@ -3440,7 +3437,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 5.53%">13</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 29.69%">133</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 30.36%">136</span>
 </td>
 <td style="text-align:right;">
 0
@@ -3720,7 +3717,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 世田谷区
 </td>
 <td style="text-align:right;">
-290
+289
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 43.00%">43</span>
@@ -3732,7 +3729,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 28.43%">29</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 83.33%">160</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 83.85%">161</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 7.05%">36</span>
@@ -4366,31 +4363,31 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 府中市
 </td>
 <td style="text-align:right;">
-47
+58
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 8.00%">8</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 11.00%">11</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 1.71%">13</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 2.50%">19</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 1.96%">2</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 15.10%">29</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 15.62%">30</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 1.57%">8</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 2.54%">13</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: yellow; width: 1.26%">8</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: yellow; width: 2.05%">13</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 2.13%">5</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 4.26%">10</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 1.34%">6</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 1.79%">8</span>
 </td>
 <td style="text-align:right;">
 4
@@ -5443,7 +5440,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 世田谷区
 </td>
 <td style="text-align:right;">
-290
+289
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 43.00%">43</span>
@@ -5455,7 +5452,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 28.43%">29</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 83.33%">160</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 83.85%">161</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 7.05%">36</span>
@@ -5575,31 +5572,31 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 府中市
 </td>
 <td style="text-align:right;">
-47
+58
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 8.00%">8</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 11.00%">11</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 1.71%">13</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 2.50%">19</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 1.96%">2</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 15.10%">29</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 15.62%">30</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 1.57%">8</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 2.54%">13</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: yellow; width: 1.26%">8</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: yellow; width: 2.05%">13</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 2.13%">5</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 4.26%">10</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 1.34%">6</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 1.79%">8</span>
 </td>
 <td style="text-align:right;">
 4
@@ -6631,7 +6628,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 新宿区
 </td>
 <td style="text-align:right;">
-150
+151
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 28.00%">28</span>
@@ -6655,7 +6652,7 @@ formattable(Tokyo.summary1,list(合計=color_bar(&quot;tomato&quot;),
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 5.53%">13</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 29.69%">133</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 30.36%">136</span>
 </td>
 <td style="text-align:right;">
 0
@@ -7883,7 +7880,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 3.92%">4</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.00%">15</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 2.99%">15</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 1.17%">6</span>
@@ -7915,7 +7912,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 36.27%">37</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 14.00%">70</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 13.94%">70</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 13.70%">70</span>
@@ -7947,7 +7944,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 7.84%">8</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 7.00%">35</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 6.97%">35</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 21.53%">110</span>
@@ -7979,7 +7976,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 95.10%">97</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 24.00%">120</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 23.90%">120</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 9.98%">51</span>
@@ -8043,7 +8040,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 6.86%">7</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 4.60%">23</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 4.58%">23</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 10.76%">55</span>
@@ -8107,7 +8104,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 5.88%">6</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 21.40%">107</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 21.31%">107</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 2.94%">15</span>
@@ -8139,7 +8136,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 20.59%">21</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 12.80%">64</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 12.75%">64</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 4.70%">24</span>
@@ -8171,7 +8168,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 36.27%">37</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 5.40%">27</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 5.38%">27</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 3.52%">18</span>
@@ -8203,7 +8200,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 58.82%">60</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 17.20%">86</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 17.13%">86</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 8.41%">43</span>
@@ -8215,7 +8212,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 12.40%">32</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 53.96%">245</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 54.63%">248</span>
 </td>
 <td style="text-align:right;">
 0
@@ -8235,7 +8232,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 28.43%">29</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.20%">16</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.19%">16</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 2.54%">13</span>
@@ -8267,7 +8264,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 89.22%">91</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 43.20%">216</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 43.03%">216</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 73.97%">378</span>
@@ -8290,28 +8287,28 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 多摩川
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 94.29%">99</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 97.14%">102</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 64.67%">507</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 65.43%">513</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 81.37%">83</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 100.00%">500</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 100.00%">502</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 53.42%">273</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 54.40%">278</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: yellow; width: 37.69%">248</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: yellow; width: 38.45%">253</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 73.64%">190</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 75.58%">195</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 40.31%">183</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 40.75%">185</span>
 </td>
 <td style="text-align:right;">
 30
@@ -8331,7 +8328,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 100.00%">102</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 35.60%">178</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 35.46%">178</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 100.00%">511</span>
@@ -8363,7 +8360,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 1.96%">2</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.80%">9</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.79%">9</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 0.98%">5</span>
@@ -8395,7 +8392,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 14.71%">15</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.40%">17</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.39%">17</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 2.15%">11</span>
@@ -8427,7 +8424,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 12.75%">13</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 2.60%">13</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 2.59%">13</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 0.98%">5</span>
@@ -8459,7 +8456,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 3.92%">4</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 4.20%">21</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 4.18%">21</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 9.00%">46</span>
@@ -8491,7 +8488,7 @@ Tokyo.sumRiver2[is.na(Tokyo.sumRiver2)] &lt;- 0
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 15.69%">16</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 10.40%">52</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 10.36%">52</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 10.18%">52</span>
@@ -8519,22 +8516,30 @@ rm(Tokyo.sumRiverX)</code></pre>
 <p>チャンク22で作成したデータフレーム(<code>Tokyo.sumRiver2</code>)は、行(縦軸)が水系、列(横軸)が時代となっています。<strong>formattable</strong>パッケージによるカラー・バーグラフは、同一列内での相対的な数値の大小を示すので、同じ時代における水系ごとの遺跡数の多寡が表現されています。</p>
 <p>ここでデータフレームの行列を入れ替えることができると、今度は同一の水系における時代ごとの遺跡数の多寡を視覚化することができます。</p>
 <p>まず次のチャンクを実行すると、データフレームが縦長に変換されます。</p>
-<pre class="r"><code>Tokyo.sumRiver3 &lt;- rename(Tokyo.sumRiver2, &quot;0旧石器&quot; = 旧石器, &quot;1縄文&quot; = 縄文, &quot;2弥生&quot; = 弥生, &quot;3古墳&quot; = 古墳, &quot;4奈良&quot; = 奈良, &quot;5平安&quot; = 平安, &quot;6中世&quot; = 中世, &quot;7近世&quot; = 近世, &quot;8不明&quot; = 不明) #昇順に並び替えるために時代列名を変更
+<pre class="r"><code># Tokyo.sumRiver3 &lt;- rename(Tokyo.sumRiver2, &quot;0旧石器&quot; = 旧石器, &quot;1縄文&quot; = 縄文, &quot;2弥生&quot; = 弥生, &quot;3古墳&quot; = 古墳, &quot;4奈良&quot; = 奈良, &quot;5平安&quot; = 平安, &quot;6中世&quot; = 中世, &quot;7近世&quot; = 近世, &quot;8不明&quot; = 不明) #昇順に並び替えるために時代列名を変更→因子型に変更
 
-Tokyo.sumRiver3 &lt;- gather(Tokyo.sumRiver3, key = 時代, value = 遺跡数, -水系)
+Tokyo.sumRiver3 &lt;- gather(Tokyo.sumRiver2, key = 時代, value = 遺跡数, -水系)
 
 head(Tokyo.sumRiver3)</code></pre>
 <pre><code>## # A tibble: 6 x 3
-##   水系   時代    遺跡数
-##   &lt;chr&gt;  &lt;chr&gt;    &lt;int&gt;
-## 1 空堀川 0旧石器     24
-## 2 隅田川 0旧石器     10
-## 3 乞田川 0旧石器     29
-## 4 荒川   0旧石器     27
-## 5 黒目川 0旧石器     40
-## 6 三沢川 0旧石器     15</code></pre>
+##   水系   時代   遺跡数
+##   &lt;chr&gt;  &lt;chr&gt;   &lt;int&gt;
+## 1 空堀川 旧石器     24
+## 2 隅田川 旧石器     10
+## 3 乞田川 旧石器     29
+## 4 荒川   旧石器     27
+## 5 黒目川 旧石器     40
+## 6 三沢川 旧石器     15</code></pre>
 <p>次に、時代を縦軸(行)、水系を横軸(列)に入れ替えます。水系ごとの時代別の遺跡数の推移が可視化されます。</p>
-<pre class="r"><code>Tokyo.sumRiver3 &lt;- spread(Tokyo.sumRiver3, key = 水系, value = 遺跡数)
+<p>※2020/10/31追加：なおこれまで「時代」列は文字列(chr)型として扱ってきましたが、ここでは表の順序を「時代」列で指定するために<strong>因子(factor)型</strong>に変更します。因子型は数値や文字(通常は文字コード順)と異なり指定した順列として扱うことが可能になります。1038行目で<code>factor()</code>関数数の因数<code>levels()</code>により順列を指定しています。ここでは文字の行列のため<code>levels = c(&quot;###&quot;, &quot;###&quot;)</code>と指定しています。</p>
+<pre class="r"><code>#時代列を因子(factor)型に変更
+Tokyo.sumRiver3$時代 &lt;- as.factor(Tokyo.sumRiver3$時代)
+
+#因子型のデータに順列を与える（factor(object, levels = c())
+Tokyo.sumRiver3$時代 &lt;- factor(Tokyo.sumRiver3$時代, levels = c(&quot;旧石器&quot;, &quot;縄文&quot;, &quot;弥生&quot;, &quot;古墳&quot;, &quot;奈良&quot;, &quot;平安&quot;, &quot;中世&quot;, &quot;近世&quot;, &quot;不明&quot;))
+
+#縦長のデータを横長に変換(spread())
+Tokyo.sumRiver3 &lt;- spread(Tokyo.sumRiver3, key = 水系, value = 遺跡数)
 
 #並べ替え
 Tokyo.sumRiver3 &lt;- dplyr::select(Tokyo.sumRiver3, 時代, 多摩川, 野川, 三沢川, 乞田川, 残堀川, 浅川, 秋川, 平井川, 目黒川, 渋谷川, 神田川, 小石川, 妙正寺川, 石神井川, 隅田川, 荒川, 黒目川, 柳瀬川, 空堀川, 鶴見川)
@@ -8634,10 +8639,10 @@ formattable(Tokyo.sumRiver3,list(
 <tbody>
 <tr>
 <td style="text-align:right;">
-0旧石器
+旧石器
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 19.53%">99</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 19.88%">102</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 59.43%">63</span>
@@ -8667,7 +8672,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 4.12%">8</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 27.35%">67</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 27.02%">67</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 15.75%">20</span>
@@ -8699,10 +8704,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-1縄文
+縄文
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 100.00%">507</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 100.00%">513</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 100.00%">106</span>
@@ -8732,7 +8737,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 40.21%">78</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 91.02%">223</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 89.92%">223</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 66.14%">84</span>
@@ -8764,10 +8769,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-2弥生
+弥生
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 16.37%">83</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 16.18%">83</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 3.77%">4</span>
@@ -8797,7 +8802,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.82%">21</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 24.49%">60</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 24.19%">60</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 29.13%">37</span>
@@ -8829,10 +8834,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-3古墳
+古墳
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 98.62%">500</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 97.86%">502</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 19.81%">21</span>
@@ -8862,7 +8867,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 32.99%">64</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 35.10%">86</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 34.68%">86</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 21.26%">27</span>
@@ -8894,10 +8899,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-4奈良
+奈良
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 53.85%">273</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 54.19%">278</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 43.40%">46</span>
@@ -8927,7 +8932,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 12.37%">24</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 17.55%">43</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 17.34%">43</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 14.17%">18</span>
@@ -8959,10 +8964,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-5平安
+平安
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 48.92%">248</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 49.32%">253</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 36.79%">39</span>
@@ -8992,7 +8997,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 5.67%">11</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 16.73%">41</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 16.53%">41</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 16.54%">21</span>
@@ -9024,10 +9029,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-6中世
+中世
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 37.48%">190</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 38.01%">195</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 17.92%">19</span>
@@ -9057,7 +9062,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 5.15%">10</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 13.06%">32</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 12.90%">32</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 14.17%">18</span>
@@ -9089,10 +9094,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-7近世
+近世
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 36.09%">183</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 36.06%">185</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 39.62%">42</span>
@@ -9122,7 +9127,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 100.00%">194</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 100.00%">245</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 100.00%">248</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: pink; width: 100.00%">127</span>
@@ -9154,10 +9159,10 @@ formattable(Tokyo.sumRiver3,list(
 </tr>
 <tr>
 <td style="text-align:right;">
-8不明
+不明
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 5.92%">30</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 5.85%">30</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: skyblue; width: 0.94%">1</span>
@@ -9225,8 +9230,8 @@ formattable(Tokyo.sumRiver3,list(
 <p>自治体別-または河川水系別-時代別の集計と同じ手順で、遺跡種別データを集計します。集計の際に作成するリストは、遺跡分布図作成データとしても利用できるので保管し、後ほど.csvファイルとして書き出します。</p>
 <p>なお<strong>主な遺構/概要</strong>という列名には<code>/</code>(半角スラッシュ)が入っているためデータ操作時に問題が生じます。最初に列名を<strong>遺構</strong>に変更しておきます。</p>
 <pre class="r"><code>#集計2:遺跡種別
-  # 列名変更
-    TokyoTotal.age &lt;- rename(TokyoTotal.age, &quot;遺構&quot; = &quot;主な遺構/概要&quot;)
+  #列名変更
+  TokyoTotal.age &lt;- rename(TokyoTotal.age, &quot;遺構&quot; = &quot;主な遺構/概要&quot;)
   #ベースリスト
     Tokyo.sp &lt;- TokyoTotal.age %&gt;%
       group_by(自治体コード) %&gt;%
@@ -9239,7 +9244,7 @@ formattable(Tokyo.sumRiver3,list(
         filter(縄文時代 != 0) %&gt;% 
         filter(str_detect(種別, &quot;貝塚&quot;))
     #集計
-      Tokyo.st2 &lt;- TokyoTotal.age %&gt;%
+      Tokyo.st2 &lt;- Tokyo.Jkaizuka %&gt;%
         group_by(自治体コード)　%&gt;%
         count %&gt;% 
         rename(&quot;貝塚&quot; = &quot;n&quot;)
@@ -9253,7 +9258,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 &lt;- Tokyo.Yshukoubo %&gt;% 
         group_by(自治体コード) %&gt;% 
-        count() %&gt;% 
+        count %&gt;% 
         rename(&quot;方形周溝墓&quot; = &quot;n&quot;)
       Tokyo.sp &lt;- left_join(Tokyo.sp, Tokyo.st2, by = &quot;自治体コード&quot;)
   
@@ -9265,7 +9270,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 &lt;- Tokyo.Kkofun %&gt;% 
         group_by(自治体コード) %&gt;% 
-        tally %&gt;% 
+        count() %&gt;% 
         rename(&quot;古墳&quot; = &quot;n&quot;)
       Tokyo.sp &lt;- left_join(Tokyo.sp, Tokyo.st2, by = &quot;自治体コード&quot;)
   
@@ -9277,7 +9282,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 &lt;- Tokyo.Kyokoana %&gt;% 
         group_by(自治体コード) %&gt;% 
-        tally %&gt;% 
+        count %&gt;% 
         rename(&quot;横穴墓&quot; = &quot;n&quot;)
       Tokyo.sp &lt;- left_join(Tokyo.sp, Tokyo.st2, by = &quot;自治体コード&quot;)
   
@@ -9289,7 +9294,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 &lt;- Tokyo.Mjokan %&gt;% 
         group_by(自治体コード) %&gt;% 
-        tally %&gt;% 
+        count %&gt;% 
         rename(&quot;城館&quot; = &quot;n&quot;)
       Tokyo.sp &lt;- left_join(Tokyo.sp, Tokyo.st2, by = &quot;自治体コード&quot;)
   
@@ -9300,7 +9305,7 @@ formattable(Tokyo.sumRiver3,list(
     #集計
       Tokyo.st2 &lt;- Tokyo.Mtsuka %&gt;% 
         group_by(自治体コード) %&gt;% 
-        tally %&gt;% 
+        count %&gt;% 
         rename(&quot;塚&quot; = &quot;n&quot;)
       Tokyo.sp &lt;- left_join(Tokyo.sp, Tokyo.st2, by = &quot;自治体コード&quot;)
 
@@ -9377,13 +9382,13 @@ formattable(Tokyo.sumRiver3,list(
 大田区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 23.59%">235</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 100.00%">16</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 30.00%">3</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 67.90%">55</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 69.62%">55</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 100.00%">57</span>
@@ -9409,16 +9414,16 @@ formattable(Tokyo.sumRiver3,list(
 世田谷区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 29.12%">290</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 12.50%">2</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 30.00%">3</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 100.00%">81</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 100.00%">79</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 40.35%">23</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 45.61%">26</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 26.92%">7</span>
@@ -9441,13 +9446,13 @@ formattable(Tokyo.sumRiver3,list(
 狛江市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 7.23%">72</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.00%">1</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 29.63%">24</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 30.38%">24</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -9473,13 +9478,13 @@ formattable(Tokyo.sumRiver3,list(
 調布市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 9.04%">90</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 40.74%">33</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 41.77%">33</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 5.26%">3</span>
@@ -9505,13 +9510,13 @@ formattable(Tokyo.sumRiver3,list(
 府中市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 4.72%">47</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 29.63%">24</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 30.38%">24</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 1.75%">1</span>
@@ -9520,7 +9525,7 @@ formattable(Tokyo.sumRiver3,list(
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: red; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 13.04%">6</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: purple; width: 19.57%">9</span>
 </td>
 </tr>
 <tr>
@@ -9537,13 +9542,13 @@ formattable(Tokyo.sumRiver3,list(
 国立市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 5.42%">54</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 38.27%">31</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 39.24%">31</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -9569,13 +9574,13 @@ formattable(Tokyo.sumRiver3,list(
 立川市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 2.01%">20</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.70%">3</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.80%">3</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -9601,13 +9606,13 @@ formattable(Tokyo.sumRiver3,list(
 昭島市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 4.62%">46</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 4.94%">4</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 5.06%">4</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -9633,7 +9638,7 @@ formattable(Tokyo.sumRiver3,list(
 福生市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 1.91%">19</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -9665,7 +9670,7 @@ formattable(Tokyo.sumRiver3,list(
 羽村市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 1.00%">10</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -9697,7 +9702,7 @@ formattable(Tokyo.sumRiver3,list(
 青梅市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 18.17%">181</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.00%">1</span>
@@ -9729,7 +9734,7 @@ formattable(Tokyo.sumRiver3,list(
 奥多摩町
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 4.92%">49</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -9761,13 +9766,13 @@ formattable(Tokyo.sumRiver3,list(
 三鷹市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 5.52%">55</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.23%">1</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.27%">1</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 10.53%">6</span>
@@ -9793,7 +9798,7 @@ formattable(Tokyo.sumRiver3,list(
 小金井市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 2.41%">24</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -9825,7 +9830,7 @@ formattable(Tokyo.sumRiver3,list(
 国分寺市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 4.62%">46</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -9857,7 +9862,7 @@ formattable(Tokyo.sumRiver3,list(
 稲城市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 14.66%">146</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.00%">1</span>
@@ -9889,13 +9894,13 @@ formattable(Tokyo.sumRiver3,list(
 多摩市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 31.22%">311</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 16.05%">13</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 16.46%">13</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 5.26%">3</span>
@@ -9921,7 +9926,7 @@ formattable(Tokyo.sumRiver3,list(
 瑞穂町
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 2.21%">22</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -9953,13 +9958,13 @@ formattable(Tokyo.sumRiver3,list(
 日野市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 5.22%">52</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 8.64%">7</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 8.86%">7</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 5.26%">3</span>
@@ -9985,13 +9990,13 @@ formattable(Tokyo.sumRiver3,list(
 八王子市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 100.00%">996</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 70.00%">7</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 6.17%">5</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 6.33%">5</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 3.51%">2</span>
@@ -10017,13 +10022,13 @@ formattable(Tokyo.sumRiver3,list(
 あきる野市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 18.37%">183</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 92.59%">75</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 94.94%">75</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10049,7 +10054,7 @@ formattable(Tokyo.sumRiver3,list(
 檜原村
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 4.22%">42</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10081,13 +10086,13 @@ formattable(Tokyo.sumRiver3,list(
 日の出町
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 2.51%">25</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.23%">1</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.27%">1</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10113,13 +10118,13 @@ formattable(Tokyo.sumRiver3,list(
 品川区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 3.01%">30</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 37.50%">6</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.70%">3</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 3.80%">3</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 1.75%">1</span>
@@ -10145,13 +10150,13 @@ formattable(Tokyo.sumRiver3,list(
 目黒区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 5.82%">58</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 6.25%">1</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 2.47%">2</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 2.53%">2</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10177,13 +10182,13 @@ formattable(Tokyo.sumRiver3,list(
 港区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 24.40%">243</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 81.25%">13</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.00%">1</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 23.46%">19</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 24.05%">19</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 3.51%">2</span>
@@ -10209,13 +10214,13 @@ formattable(Tokyo.sumRiver3,list(
 渋谷区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 7.83%">78</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 25.00%">4</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 19.75%">16</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 20.25%">16</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 24.56%">14</span>
@@ -10241,7 +10246,7 @@ formattable(Tokyo.sumRiver3,list(
 千代田区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 8.94%">89</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 37.50%">6</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.00%">1</span>
@@ -10273,7 +10278,7 @@ formattable(Tokyo.sumRiver3,list(
 新宿区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 15.06%">150</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 6.25%">1</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 50.00%">5</span>
@@ -10305,13 +10310,13 @@ formattable(Tokyo.sumRiver3,list(
 杉並区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 16.47%">164</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 30.00%">3</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.23%">1</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.27%">1</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 1.75%">1</span>
@@ -10337,7 +10342,7 @@ formattable(Tokyo.sumRiver3,list(
 武蔵野市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.50%">5</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10369,13 +10374,13 @@ formattable(Tokyo.sumRiver3,list(
 文京区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 13.15%">131</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 93.75%">15</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 7.41%">6</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 7.59%">6</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10401,13 +10406,13 @@ formattable(Tokyo.sumRiver3,list(
 豊島区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 1.61%">16</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 18.75%">3</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.00%">1</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.23%">1</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 1.27%">1</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10433,13 +10438,13 @@ formattable(Tokyo.sumRiver3,list(
 中野区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 9.44%">94</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 2.47%">2</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 2.53%">2</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 1.75%">1</span>
@@ -10465,7 +10470,7 @@ formattable(Tokyo.sumRiver3,list(
 練馬区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 10.64%">106</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 30.00%">3</span>
@@ -10497,7 +10502,7 @@ formattable(Tokyo.sumRiver3,list(
 西東京市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 1.41%">14</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10529,7 +10534,7 @@ formattable(Tokyo.sumRiver3,list(
 小平市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.40%">4</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10561,7 +10566,7 @@ formattable(Tokyo.sumRiver3,list(
 中央区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 15.26%">152</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10593,7 +10598,7 @@ formattable(Tokyo.sumRiver3,list(
 江東区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.60%">6</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10625,7 +10630,7 @@ formattable(Tokyo.sumRiver3,list(
 墨田区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 7.93%">79</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10657,13 +10662,13 @@ formattable(Tokyo.sumRiver3,list(
 台東区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 15.46%">154</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 31.25%">5</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 6.17%">5</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 6.33%">5</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10689,7 +10694,7 @@ formattable(Tokyo.sumRiver3,list(
 荒川区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.70%">7</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 6.25%">1</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10721,13 +10726,13 @@ formattable(Tokyo.sumRiver3,list(
 北区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 5.42%">54</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 43.75%">7</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 70.00%">7</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 19.75%">16</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 20.25%">16</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 1.75%">1</span>
@@ -10753,7 +10758,7 @@ formattable(Tokyo.sumRiver3,list(
 江戸川区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 1.31%">13</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10785,13 +10790,13 @@ formattable(Tokyo.sumRiver3,list(
 葛飾区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 2.71%">27</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 4.94%">4</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 5.06%">4</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10817,13 +10822,13 @@ formattable(Tokyo.sumRiver3,list(
 足立区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 2.71%">27</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 12.35%">10</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 12.66%">10</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10849,13 +10854,13 @@ formattable(Tokyo.sumRiver3,list(
 板橋区
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 17.37%">173</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 56.25%">9</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 100.00%">10</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 4.94%">4</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 5.06%">4</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 0.00%">0</span>
@@ -10881,7 +10886,7 @@ formattable(Tokyo.sumRiver3,list(
 東久留米市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 13.86%">138</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 10.00%">1</span>
@@ -10913,7 +10918,7 @@ formattable(Tokyo.sumRiver3,list(
 清瀬市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 7.73%">77</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10945,7 +10950,7 @@ formattable(Tokyo.sumRiver3,list(
 東村山市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 14.86%">148</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -10977,7 +10982,7 @@ formattable(Tokyo.sumRiver3,list(
 東大和市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 7.63%">76</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -11009,7 +11014,7 @@ formattable(Tokyo.sumRiver3,list(
 武蔵村山市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 4.02%">40</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 0.00%">0</span>
@@ -11041,13 +11046,13 @@ formattable(Tokyo.sumRiver3,list(
 町田市
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 91.57%">912</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: blue; width: 0.00%">0</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: orange; width: 30.00%">3</span>
 </td>
 <td style="text-align:right;">
-<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 7.41%">6</span>
+<span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: green; width: 7.59%">6</span>
 </td>
 <td style="text-align:right;">
 <span style="display: inline-block; direction: rtl; border-radius: 4px; padding-right: 2px; background-color: brown; width: 33.33%">19</span>
