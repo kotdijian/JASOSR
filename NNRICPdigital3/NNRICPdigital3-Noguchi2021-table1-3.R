@@ -14,12 +14,12 @@
 # published date: 12MAR2021
 
 # package installation and activation: パッケージのインストールとアクティベーション
-install.packages("tidyverse")
-install.packages("rio")
-install.packages("formattable")
-library("tidyverse")
-library("rio")
-library("formattable")
+  install.packages("tidyverse")
+  install.packages("rio")
+  install.packages("formattable")
+  library("tidyverse")
+  library("rio")
+  library("formattable")
 
 # data imoport: データのインポート
   # TokyoTotalAgeに原データcsvを読み込み、エンコードの指定に注意: 原データ=時代区分整備済み13TokyoAge.csv
