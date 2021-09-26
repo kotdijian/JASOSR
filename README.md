@@ -22,3 +22,6 @@ About: Spatial Data Repository Archaeological Sites in Japan
 
 - **[FOSS4Gtutorial](https://github.com/kotdijian/JASOSR/tree/master/FOSS4Gtutorial)**: Resources and slides for *FOSSS4G 2020 tutorial day* (Japanese only)
     - [FOSS4G Japan 2020 Online チュートリアルデイ](https://www.osgeo.jp/events/foss4g-2020/foss4g-2020-japan-online/foss4g-japan-2020-online-tutorial-day)の教材・データです
+
+- **[考古・埋蔵文化財空間データの可能性](https://github.com/kotdijian/JASOSR/tree/master/JAAI2021)**: R Markdown source for Noguchi & Takata(2021) A potential of spatial data in arhcaeology and cultural propety management. (Japanese only)
+    - [日本情報考古学会](https://www.archaeo-info.org/)第44回大会(オンライン)における発表で使用したソースコードです
