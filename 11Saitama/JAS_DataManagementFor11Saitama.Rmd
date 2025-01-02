@@ -1,5 +1,5 @@
 ---
-# title: "JAS_DataManagementFor14130Kawasaki-20250102ver"
+# title: "JAS_DataManagementFor14130Saitama-20250102ver"
 # author: "kotdijian"
 # date: "02-Jan-2025"
 # output:
@@ -35,159 +35,143 @@ library("utf8")         #UTF-8エンコーディング対応
 library("bit64")        #UID13桁対応
 ```
 ```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
-KawasakiTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/14Kanagawa/14130Kawasaki_total.csv", setclass= "tbl_df", encoding = "UTF-8") # KawasakiTotalに原データcsvを読み込み、エンコードの指定に注意
+SaitamaTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/11Saitama/11Saitama_total.csv", setclass= "tbl_df", encoding = "UTF-8") # SaitamaTotalに原データcsvを読み込み、エンコードの指定に注意
 ```
 ```{r chunk2, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #データフレームのレコード数(行数)を確認
-nrow(KawasakiTotal)
+nrow(SaitamaTotal)
 ```
 ```{r chunk3, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # データフレームの構造を確認
-str(KawasakiTotal)
+str(SaitamaTotal)
 ```
 ```{r chunk4, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #データフレームの先頭数行の内容を表示
-head(KawasakiTotal)
+head(SaitamaTotal)
 ```
 
 ```{r chunk5, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #データフレームの概要・基礎統計量を表示
-summary(KawasakiTotal) #数値データ列は、最大最小値、第1・第3四分位値、中央・平均値が計算される
+summary(SaitamaTotal) #数値データ列は、最大最小値、第1・第3四分位値、中央・平均値が計算される
 
 ```
 ```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # 抹消データの削除：前のversion以降の抹消情報をデータセットから削除
-# Kawasaki <- filter(KawasakiTotal, 名称・備考 != "（抹消）")
-Kawasaki <- KawasakiTotal %>%
-              rename("遺跡名"="名称・備考", "所在地"="所在地（代表地番）")
-nrow(Kawasaki)
+# Saitama <- filter(SaitamaTotal, 名称・備考 != "（抹消）")
+Saitama.medieval <- dplyr::select(SaitamaTotal,"JASID","鎌倉","南北朝","室町","戦国")
+Saitama.medieval <- Saitama.medieval %>%
+  replace_na(list(鎌倉=0,南北朝=0,室町=0,戦国=0)) %>%
+  rowwise() %>%
+  mutate(M = sum(c_across()))
+  Saitama.medieval$M <- as.numeric (Saitama.medieval$M > Saitama.medieval$JASID)
+
+Saitama <- SaitamaTotal %>%
+              rename("自治体コード"="LGC","P"="旧石器","J"="縄文","Y"="弥生","K"="古墳","N"="奈良","H"="平安","E"="江戸","U"="不明") %>%
+  　　　　　　mutate(D = 0) %>%
+              left_join(dplyr::select(Saitama.medieval, JASID, M),by = "JASID") %>%
+              dplyr::select(JASID, 自治体コード, 遺跡番号, 種別, 緯度, 経度,P,J,Y,K,N,H,M,E,D,U) %>%
+              replace_na(list(P=0,J=0,Y=0,K=0,N=0,H=0,E=0,U=0))
+Saitama <- Saitama
 ```
 
 ```{r chunk7, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 #旧石器時代
-Kawasaki.palaeolithic <- Kawasaki %>% 
-                      filter(str_detect(時代, "旧石器")) %>% 
-                      mutate(旧石器 = 1)
+Saitama.palaeolithic <- Saitama %>% 
+                      filter(P == 1)
 
 #縄文時代
-Kawasaki.jomon <- Kawasaki %>% 
-                      filter(str_detect(時代, "縄文")) %>% 
-                      mutate(縄文 = 1)
+Saitama.jomon <- Saitama %>% 
+                      filter(J == 1)
 
 #弥生時代
-Kawasaki.yayoi <- Kawasaki %>% 
-                      filter(str_detect(時代, "弥生")) %>% 
-                      mutate(弥生 = 1)
+Saitama.yayoi <- Saitama %>% 
+                      filter(Y == 1)
 
 #古墳時代
-Kawasaki.kofun <- Kawasaki %>% 
-                      filter(str_detect(時代, "古墳")) %>% 
-                      mutate(古墳 = 1)
+Saitama.kofun <- Saitama %>% 
+                      filter(K == 1)
 
 #奈良時代
-Kawasaki.nara <- Kawasaki %>% 
-                      filter(str_detect(時代, "奈良")) %>% 
-                      mutate(奈良 = 1)
+Saitama.nara <- Saitama %>% 
+                      filter(N == 1)
 
 #平安時代
-Kawasaki.heian <- Kawasaki %>% 
-                      filter(str_detect(時代, "平安")) %>% 
-                      mutate(平安 = 1)
+Saitama.heian <- Saitama %>% 
+                      filter(H == 1)
 
 #中世
-Kawasaki.medieval <- Kawasaki %>% 
-                      filter(str_detect(時代, "中世")) %>% 
-                      mutate(中世 = 1)
+Saitama.medieval <- Saitama %>% 
+                      filter(M == 1)
 
 #近世
-Kawasaki.earlymodern <- Kawasaki %>% 
-                      filter(str_detect(時代, "近世")) %>% 
-                      mutate(近世 = 1)
+Saitama.earlymodern <- Saitama %>% 
+                      filter(E == 1)
 
 #近代
-Kawasaki.modern <- Kawasaki %>% 
-                      filter(str_detect(時代, "近代")) %>% 
-                      mutate(近代 = 1)
+#Saitama.modern <- Saitama %>% 
+#                      filter(D == 1)
 
 #時代不明
-Kawasaki.unknown <- Kawasaki %>% 
-                      filter(str_detect(時代, "不明")) %>% 
-                      mutate(不明 = 1)
-```
-```{r chunk8, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
-#時代データ追加と統合
-    Kawasaki.age <- Kawasaki %>%
-                          dplyr::select(JASID, 自治体コード, 遺跡番号, 遺跡名, 所在地, 時代, 緯度, 経度) %>%
-                          left_join(dplyr::select(Kawasaki.palaeolithic, JASID, 旧石器),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.jomon, JASID, 縄文),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.yayoi, JASID, 弥生),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.kofun, JASID, 古墳),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.nara, JASID, 奈良),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.heian, JASID, 平安),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.medieval, JASID, 中世),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.earlymodern, JASID, 近世),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.modern, JASID, 近代),by = "JASID") %>%
-                          left_join(dplyr::select(Kawasaki.unknown, JASID, 不明),by = "JASID") %>%
-                          replace_na(list(旧石器 =0, 縄文 =0, 弥生 = 0, 古墳 = 0, 奈良 = 0, 平安 = 0, 中世 = 0, 近世 = 0, 近代 = 0, 不明 = 0))
+Saitama.unknown <- Saitama %>% 
+                      filter(U == 1)
 ```
 ```{r chunk9, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #全データ書き出し（UTF-8)
-write.csv(Kawasaki, "14130Kawasaki.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.age, "14130KawasakiAge.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama, "11Saitama.csv", row.names=FALSE, fileEncoding = "UTF-8")
 ```
 ```{r chunk10, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #時代別データ書き出しUTF-8
-write.csv(Kawasaki.palaeolithic, "byAge/14130Kawasaki_palaeolithic.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.jomon, "byAge/14130Kawasaki_jomon.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.yayoi, "byAge/14130Kawasaki_yayoi.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.kofun, "byAge/14130Kawasaki_kofun.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.nara, "byAge/14130Kawasaki_nara.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.heian, "byAge/14130Kawasaki_heian.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.medieval, "byAge/14130Kawasaki_medieval.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.earlymodern, "byAge/14130Kawasaki_earlymodern.csv", row.names=FALSE, fileEncoding = "UTF-8")
-# write.csv(Kawasaki.modern, "byAge/14130Kawasaki_modern.csv", row.names=FALSE, fileEncoding = "UTF-8")
-write.csv(Kawasaki.unknown, "byAge/14130Kawasaki_unknown.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.palaeolithic, "byAge/11Saitama_palaeolithic.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.jomon, "byAge/11Saitama_jomon.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.yayoi, "byAge/11Saitama_yayoi.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.kofun, "byAge/11Saitama_kofun.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.nara, "byAge/11Saitama_nara.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.heian, "byAge/11Saitama_heian.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.medieval, "byAge/11Saitama_medieval.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.earlymodern, "byAge/11Saitama_earlymodern.csv", row.names=FALSE, fileEncoding = "UTF-8")
+# write.csv(Saitama.modern, "byAge/11Saitama_modern.csv", row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.unknown, "byAge/11Saitama_unknown.csv", row.names=FALSE, fileEncoding = "UTF-8")
 ```
 ```{r chunk11, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
-Kawasaki.coord <- drop_na(KawasakiTotal,経度) #経度NAのレコードを除外して新しいオブジェクトに格納
-write.csv(Kawasaki.coord, "SJS/14130Kawasaki_totalCoordSJS.csv", row.names = FALSE, fileEncoding = "CP932")　#Shift-JIS書き出し, ファイル名を適宜指定(全レコード)
+Saitama.coord <- drop_na(SaitamaTotal,経度) #経度NAのレコードを除外して新しいオブジェクトに格納
+write.csv(Saitama.coord, "SJS/11Saitama_totalCoordSJS.csv", row.names = FALSE, fileEncoding = "CP932")　#Shift-JIS書き出し, ファイル名を適宜指定(全レコード)
 
 #時代別データ書き出し
-Kawasaki.palaeolithic <- drop_na(Kawasaki.palaeolithic,経度)
-write.csv(Kawasaki.palaeolithic, "SJS/14130Kawasaki_palaeolithicSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.palaeolithic <- drop_na(Saitama.palaeolithic,経度)
+write.csv(Saitama.palaeolithic, "SJS/11Saitama_palaeolithicSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.jomon <- drop_na(Kawasaki.jomon,経度)
-write.csv(Kawasaki.jomon, "SJS/14130Kawasaki_jomonSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.jomon <- drop_na(Saitama.jomon,経度)
+write.csv(Saitama.jomon, "SJS/11Saitama_jomonSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.yayoi<- drop_na(Kawasaki.yayoi,経度)
-write.csv(Kawasaki.yayoi, "SJS/14130Kawasaki_yayoiSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.yayoi<- drop_na(Saitama.yayoi,経度)
+write.csv(Saitama.yayoi, "SJS/11Saitama_yayoiSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.kofun <- drop_na(Kawasaki.kofun,経度)
-write.csv(Kawasaki.kofun, "SJS/14130Kawasaki_kofunSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.kofun <- drop_na(Saitama.kofun,経度)
+write.csv(Saitama.kofun, "SJS/11Saitama_kofunSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.nara <- drop_na(Kawasaki.nara,経度)
-write.csv(Kawasaki.nara, "SJS/14130Kawasaki_naraSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.nara <- drop_na(Saitama.nara,経度)
+write.csv(Saitama.nara, "SJS/11Saitama_naraSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.heian <- drop_na(Kawasaki.heian,経度)
-write.csv(Kawasaki.heian, "SJS/14130Kawasaki_heianSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.heian <- drop_na(Saitama.heian,経度)
+write.csv(Saitama.heian, "SJS/11Saitama_heianSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.medieval <- drop_na(Kawasaki.medieval,経度)
-write.csv(Kawasaki.medieval, "SJS/14130Kawasaki_medievalSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.medieval <- drop_na(Saitama.medieval,経度)
+write.csv(Saitama.medieval, "SJS/11Saitama_medievalSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.earlymodern <- drop_na(Kawasaki.earlymodern,経度)
-write.csv(Kawasaki.earlymodern, "SJS/14130Kawasaki_earlymodernSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.earlymodern <- drop_na(Saitama.earlymodern,経度)
+write.csv(Saitama.earlymodern, "SJS/11Saitama_earlymodernSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-#Kawasaki.modern <- drop_na(Kawasaki.modern,経度)
-#write.csv(Kawasaki.earlymodern, "SJS/14130Kawasaki_modernSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+#Saitama.modern <- drop_na(Saitama.modern,経度)
+#write.csv(Saitama.earlymodern, "SJS/11Saitama_modernSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
-Kawasaki.unknown <- drop_na(Kawasaki.unknown,経度)
-write.csv(Kawasaki.unknown, "SJS/14130Kawasaki_unknownSJS.csv", row.names=FALSE, fileEncoding = "CP932")
+Saitama.unknown <- drop_na(Saitama.unknown,経度)
+write.csv(Saitama.unknown, "SJS/11Saitama_unknownSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
 ```
 ```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計1:自治体別合計
-Kawasaki.summary1 <- Kawasaki %>%  
+Saitama.summary1 <- Saitama %>%  
   group_by(自治体コード) %>%  #自治体コードで集約
   count %>%                   #レコード数=遺跡数をカウント
   rename(遺跡数合計 = n) %>%  #集計結果が格納される列の名前をn→遺跡数合計に変更
@@ -196,7 +180,7 @@ Kawasaki.summary1 <- Kawasaki %>%
 ```{r chunk13, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計2:時代別
 　  # 旧石器
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 旧石器)　%>%
     filter(旧石器 != 0) %>%
     count %>%
@@ -204,10 +188,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     rename("P" = "n") %>%
     dplyr::select(-旧石器)
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 縄文
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 縄文)　%>%
     filter(縄文 != 0) %>%
     count %>% 
@@ -215,10 +199,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     rename("J" = "n") %>%
     dplyr::select(-縄文)
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 弥生
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 弥生)　%>%
     filter(弥生 != 0) %>%
     count %>% 
@@ -226,10 +210,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     rename("Y" = "n") %>% 
     dplyr::select(-弥生)
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 古墳
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 古墳)　%>%
     filter(古墳 != 0) %>%
     count %>% 
@@ -237,10 +221,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     rename("K" = "n") %>% 
     dplyr::select(-古墳)
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 奈良
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 奈良)　%>%
     filter(奈良 != 0) %>% 
     count %>%
@@ -248,10 +232,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     rename("N" = "n") %>% 
     dplyr::select(-奈良)
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 平安
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 平安)　%>%
     filter(平安 != 0) %>%
     count %>% 
@@ -259,10 +243,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     rename("H" = "n") %>% 
     dplyr::select(-平安)
 
- Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+ Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 中世
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 中世)　%>%
     filter(中世 != 0) %>%
     count %>% 
@@ -270,10 +254,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     dplyr::select(-中世) %>%
     rename("M" = "n") 
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 近世
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 近世)　%>%
     filter(近世 != 0) %>%
     count %>% 
@@ -281,10 +265,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     dplyr::select(-近世) %>%
     rename("E" = "n") 
 
- Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+ Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 近代
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 近代)　%>%
     filter(近代 != 0) %>%
     count %>% 
@@ -292,10 +276,10 @@ Kawasaki.summary1 <- Kawasaki %>%
     dplyr::select(-近代) %>%
     rename("D" = "n") 
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 時代不明
-  Kawasaki.summary2 <- Kawasaki.age %>% 
+  Saitama.summary2 <- Saitama.age %>% 
     group_by(自治体コード, 不明)　%>%
     filter(不明 != 0) %>%
     count %>% 
@@ -303,18 +287,18 @@ Kawasaki.summary1 <- Kawasaki %>%
     dplyr::select(-不明) %>%
     rename("U" = "n")
 
-  Kawasaki.summary1 <- left_join(Kawasaki.summary1, Kawasaki.summary2, by = "自治体コード")
+  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # NAを0に置換
-  Kawasaki.summary1[is.na(Kawasaki.summary1)] <- 0
+  Saitama.summary1[is.na(Saitama.summary1)] <- 0
 
   # 合計を計算・結合
-　Kawasaki.sum <- colSums(Kawasaki.summary1)
-  Kawasaki.sum$自治体コード <- 14130
-  Kawasaki.summary1 <- rbind(Kawasaki.summary1, Kawasaki.sum)
+　Saitama.sum <- colSums(Saitama.summary1)
+  Saitama.sum$自治体コード <- 14130
+  Saitama.summary1 <- rbind(Saitama.summary1, Saitama.sum)
   # 一時保管オブジェクトを削除
-  rm(Kawasaki.sum)
-  rm(Kawasaki.summary2)
+  rm(Saitama.sum)
+  rm(Saitama.summary2)
 
 #区市町村名追加
   #自治体名の読み込み(more human readable)
@@ -322,10 +306,10 @@ Kawasaki.summary1 <- Kawasaki %>%
   LGC <- rename(LGC,区市町村名 = 名称)
 
   #自治体コードでつないで区市町村名を追加
-  Kawasaki.summary1 <- Kawasaki.summary1 %>%
+  Saitama.summary1 <- Saitama.summary1 %>%
                           left_join(dplyr::select(LGC,自治体コード,区市町村名), by = "自治体コード") %>%
                           dplyr::select(自治体コード, 区市町村名, 遺跡数合計, P, J, Y, K, N, H, M, E, D, U) #列名の並べ替え
                           
 # .csv保存
-write.csv(Kawasaki.summary1, "13KawasakiSummary1.csv", row.names = FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.summary1, "13SaitamaSummary1.csv", row.names = FALSE, fileEncoding = "UTF-8")
 ```
