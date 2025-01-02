@@ -1,0 +1,83 @@
+自治体コード,名称,よみがな,Roman
+11000,埼玉県,さいたまけん,Saitama
+11100,さいたま市,さいたまし,Saitama City
+11101,さいたま市西区,さいたましにしく,Saitama City Nishi Ward
+11102,さいたま市北区,さいたましきたく,Saitama City Kita Ward
+11103,さいたま市大宮区,さいたましおおみやく,Saitama City Omiya Ward
+11104,さいたま市見沼区,さいたましみぬまく,Saitama City Minuma Ward
+11105,さいたま市中央区,さいたましちゅうおうく,Saitama City Chuo Ward
+11106,さいたま市桜区,さいたましさくらく,Saitama City Sakura Ward
+11107,さいたま市浦和区,さいたましうらわく,Saitama City Urawa Ward
+11108,さいたま市南区,さいたましみなみく,Saitama City Minami Ward
+11109,さいたま市緑区,さいたましみどりく,Saitama City Midori Ward
+11110,さいたま市岩槻区,さいたましいわつきく,Saitama City Iwatsuki Ward
+11201,川越市,かわごえし,Kawagoe City
+11202,熊谷市,くまがやし,Kumagaya City
+11203,川口市,かわぐちし,Kawaguchi City
+11206,行田市,ぎょうだし,Gyoda City
+11207,秩父市,ちちぶし,Chichibu City
+11208,所沢市,ところざわし,Tokorozawa City
+11209,飯能市,はんのうし,Hannou City
+11210,加須市,かぞし,Kazo City
+11211,本庄市,ほんじょうし,Honjo City
+11212,東松山市,ひがしまつやまし,Higashimatsuyama City
+11214,春日部市,かすかべし,Kasukabe City
+11215,狭山市,さやまし,Sayama City
+11216,羽生市,はにゅうし,Hanyu City
+11217,鴻巣市,こうのすし,Konosu City
+11218,深谷市,ふかやし,Fukaya City
+11219,上尾市,あげおし,Ageo City
+11221,草加市,そうかし,Souka City
+11222,越谷市,こしがやし,Koshigaya City
+11223,蕨市,わらびし,Warabi City
+11224,戸田市,とだし,Toda City
+11225,入間市,いるまし,Iruma City
+11227,朝霞市,あさかし,Asaka City
+11228,志木市,しきし,Shiki City
+11229,和光市,わこうし,Wako City
+11230,新座市,にいざし,Niiza City
+11231,桶川市,おけがわし,Okegawa City
+11232,久喜市,くきし,Kuki City
+11233,北本市,きたもとし,Kitamoto City
+11234,八潮市,やしおし,Yashio City
+11235,富士見市,ふじみし,Fujimi City
+11237,三郷市,みさとし,Misato City
+11238,蓮田市,はすだし,Hasuda City
+11239,坂戸市,さかどし,Sakado City
+11240,幸手市,さってし,Satte City
+11241,鶴ヶ島市,つるがしまし,Tsurugashima City
+11242,日高市,ひだかし,Hidaka City
+11243,吉川市,よしかわし,Yoshikawa City
+11245,ふじみ野市,ふじみのし,Fujimino City
+11246,白岡市,しらおかし,Shiraoka City
+11300,北足立郡,きたあだちぐん,Kitaadachi County
+11301,伊奈町,いなまち,Ina Town
+11320,入間郡,いるまぐん,Iruma County
+11324,三芳町,みよしまち,Miyoshi Town
+11326,毛呂山町,もろやままち,Moroyama Town
+11327,越生町,おごせまち,Ogose Town
+11340,比企郡,ひきぐん,Hiki County
+11341,滑川町,なめがわまち,Namegawa Town
+11342,嵐山町,らんざんまち,Ranzan Town
+11343,小川町,おがわまち,Ogawa Town
+11346,川島町,かわじままち,Kawajima Town
+11347,吉見町,よしみまち,Yoshimi Town
+11348,鳩山町,はとやままち,Hatoyama Town
+11349,ときがわ町,ときがわまち,Tokigawa Town
+11360,秩父郡,ちちぶぐん,Chichibu County
+11361,横瀬町,よこぜまち,Yokoze Town
+11362,皆野町,みなのまち,Minano Town
+11363,長瀞町,ながとろまち,Nagatoro Town
+11365,小鹿野町,おがのまち,Ogano Town
+11369,東秩父村,ひがしちちぶむら,Higashichichibu Village
+11380,児玉郡,こだまぐん,Kodama County
+11381,美里町,みさとまち,Misato Town
+11383,神川町,かみかわまち,Kamikawa Town
+11385,上里町,かみさとまち,Kamisato Town
+11400,大里郡,おおさとぐん,Osato County
+11408,寄居町,よりいまち,Yorii Town
+11440,南埼玉郡,みなみさいたまぐん,Minamisaitama County
+11442,宮代町,みやしろまち,Miyashiro Town
+11460,北葛飾郡,きたかつしかぐん,Kitakatsushika County
+11464,杉戸町,すぎとまち,Sugito Town
+11465,松伏町,まつぶしまち,Matsubushi Town
