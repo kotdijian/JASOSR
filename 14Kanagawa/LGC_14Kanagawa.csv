@@ -1,0 +1,67 @@
+自治体コード,名称,よみがな,roman
+14000,神奈川県,かながわけん,Kanagawa
+14100,横浜市,よこはまし,Yokohama City
+14101,横浜市鶴見区,よこはましつるみく,Yokohama City Tsurumi Ward
+14102,横浜市神奈川区,よこはましかながわく,Yokohama City Kanagawa Ward
+14103,横浜市西区,よこはましにしく,Yokohama City Nishi Ward
+14104,横浜市中区,よこはましなかく,Yokohama City Naka Ward
+14105,横浜市南区,よこはましみなみく,Yokohama City Minami Ward
+14106,横浜市保土ヶ谷区,よこはましほどがやく,Yokohama City Hodogaya Ward
+14107,横浜市磯子区,よこはましいそごく,Yokohama City Isogo Ward
+14108,横浜市金沢区,よこはましかなざわく,Yokohama City Kanazawa Ward
+14109,横浜市港北区,よこはましこうほくく,Yokohama City Kohoku Ward
+14110,横浜市戸塚区,よこはましとつかく,Yokohama City Totsuka Ward
+14111,横浜市港南区,よこはましこうなんく,Yokohama City Konan Ward
+14112,横浜市旭区,よこはましあさひく,Yokohama City Asahi Ward
+14113,横浜市緑区,よこはましみどりく,Yokohama City Midori Ward
+14114,横浜市瀬谷区,よこはましせやく,Yokohama City Seya Ward
+14115,横浜市栄区,よこはましさかえく,Yokohama City Sakae Ward
+14116,横浜市泉区,よこはましいずみく,Yokohama City Izumi Ward
+14117,横浜市青葉区,よこはましあおばく,Yokohama City Aoba Ward
+14118,横浜市都筑区,よこはましつづきく,Yokohama City Tsuzuki Ward
+14130,川崎市,かわさきし,Kawasaki City
+14131,川崎市川崎区,かわさきしかわさきく,Kawasaki City Kawasaki Ward
+14132,川崎市幸区,かわさきしさいわいく,Kawasaki City Saiwai Ward
+14133,川崎市中原区,かわさきしなかはらく,Kawasaki City Nakahara Ward
+14134,川崎市高津区,かわさきしたかつく,Kawasaki City Takatsu Ward
+14135,川崎市多摩区,かわさきしたまく,Kawasaki City Tama Ward
+14136,川崎市宮前区,かわさきしみやまえく,Kawasaki City Miyamae Ward
+14137,川崎市麻生区,かわさきしあさおく,Kawasaki City Asao Ward
+14150,相模原市,さがみはらし,Sagamihara City
+14151,相模原市緑区,さがみはらしみどりく,Sagamihara City Midori Ward
+14152,相模原市中央区,さがみはらしちゅうおうく,Sagamihara City Chuo Ward
+14153,相模原市南区,さがみはらしみなみく,Sagamihara City Minami Ward
+14201,横須賀市,よこすかし,Yokosuka City
+14203,平塚市,ひらつかし,Hiratsuka City
+14204,鎌倉市,かまくらし,Kamakura City
+14205,藤沢市,ふじさわし,Fujisawa City
+14206,小田原市,おだわらし,Odawara City
+14207,茅ヶ崎市,ちがさきし,Chigasaki City
+14208,逗子市,ずしし,Zushi City
+14210,三浦市,みうらし,Miura City
+14211,秦野市,はだのし,Hadano City
+14212,厚木市,あつぎし,Atsugi City
+14213,大和市,やまとし,Yamato City
+14214,伊勢原市,いせはらし,Isehara City
+14215,海老名市,えびなし,Ebina City
+14216,座間市,ざまし,Zama City
+14217,南足柄市,みなみあしがらし,Minamiashigara City
+14300,三浦郡,みうらぐん,Miura County
+14301,葉山町,はやままち,Hayama Town
+14320,高座郡,こうざぐん,Kouza County
+14321,寒川町,さむかわまち,Samukawa Town
+14340,中郡,なかぐん,Naka County
+14341,大磯町,おおいそまち,Oiso Town
+14360,足柄上郡,Ashigarakami County
+14361,中井町,なかいまち,Nakai Town
+14362,大井町,おおいまち,Oi Town
+14363,松田町,まつだまち,Matsuda Town
+14364,山北町,やまきたまち,Yamakita Town
+14366,開成町,かいせいまち,Kaisei Town
+14380,足柄下郡,あしがらしもぐん,Ashigarashimo County
+14382,箱根町,はこねまち,Hakone Town
+14383,真鶴町,まなづるまち,Manazuru Town
+14384,湯河原町,ゆがわらまち,Yugawara Town
+14400,愛甲郡,あいこうぐん,Aikou County
+14401,愛川町,あいかわまち,Aikawa Town
+14402,清川村,きよかわむら,Kiyokawa Village
