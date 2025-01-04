@@ -57,8 +57,8 @@ summary(SaitamaTotal) #数値データ列は、最大最小値、第1・第3四�
 ```
 ```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # 抹消データの削除：前のversion以降の抹消情報をデータセットから削除
-# Saitama <- filter(SaitamaTotal, 名称・備考 != "（抹消）")
-Saitama.medieval <- dplyr::select(SaitamaTotal,"JASID","鎌倉","南北朝","室町","戦国")
+Saitama <- filter(SaitamaTotal, 備考 != "抹消")
+Saitama.medieval <- dplyr::select(SaitamaTotal,"JASID","鎌倉","南北朝","室町","戦国") #中世の集計
 Saitama.medieval <- Saitama.medieval %>%
   replace_na(list(鎌倉=0,南北朝=0,室町=0,戦国=0)) %>%
   rowwise() %>%
@@ -66,12 +66,20 @@ Saitama.medieval <- Saitama.medieval %>%
   Saitama.medieval$M <- as.numeric (Saitama.medieval$M > Saitama.medieval$JASID)
 
 Saitama <- SaitamaTotal %>%
-              rename("自治体コード"="LGC","P"="旧石器","J"="縄文","Y"="弥生","K"="古墳","N"="奈良","H"="平安","E"="江戸","U"="不明") %>%
-  　　　　　　mutate(D = 0) %>%
+              rename("自治体コード"="LGC","P"="旧石器","J"="縄文","Y"="弥生","K"="古墳","N"="奈良","H"="平安","E"="江戸","D"="近代","U"="不明") %>%
               left_join(dplyr::select(Saitama.medieval, JASID, M),by = "JASID") %>%
-              dplyr::select(JASID, 自治体コード, 遺跡番号, 種別, 緯度, 経度,P,J,Y,K,N,H,M,E,D,U) %>%
               replace_na(list(P=0,J=0,Y=0,K=0,N=0,H=0,E=0,U=0))
-Saitama <- Saitama
+
+#自治体名称追加
+  #自治体名の読み込み(more human readable)
+  LGC <- import("https://github.com/kotdijian/JASOSR/raw/master/11Saitama/LGC_11Saitama.csv", setclass= "tbl_df", encoding ="UTF-8" ) #LGC_11Saitama.csv=埼玉県自治体コードリスト
+  LGC <- rename(LGC,区市町村名 = 名称)
+
+  #自治体コードでつないで区市町村名を追加
+  Saitama <- Saitama %>%
+              left_join(dplyr::select(LGC,自治体コード,区市町村名), by = "自治体コード") %>%
+              dplyr::select(JASID, 自治体コード, 区市町村名, 遺跡番号, 遺跡名, 種別, 緯度, 経度,P,J,Y,K,N,H,M,E,D,U) %>%
+              arrange(JASID)
 ```
 
 ```{r chunk7, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
@@ -109,8 +117,8 @@ Saitama.earlymodern <- Saitama %>%
                       filter(E == 1)
 
 #近代
-#Saitama.modern <- Saitama %>% 
-#                      filter(D == 1)
+Saitama.modern <- Saitama %>% 
+                      filter(D == 1)
 
 #時代不明
 Saitama.unknown <- Saitama %>% 
@@ -180,111 +188,111 @@ Saitama.summary1 <- Saitama %>%
 ```{r chunk13, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計2:時代別
 　  # 旧石器
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 旧石器)　%>%
-    filter(旧石器 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, P)　%>%
+    filter(P != 0) %>%
     count %>%
     ungroup %>%
-    rename("P" = "n") %>%
-    dplyr::select(-旧石器)
+    dplyr::select(-P) %>%
+    rename("P" = "n")
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 縄文
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 縄文)　%>%
-    filter(縄文 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, J)　%>%
+    filter(J != 0) %>%
     count %>% 
     ungroup %>%
-    rename("J" = "n") %>%
-    dplyr::select(-縄文)
+    dplyr::select(-J) %>%
+    rename("J" = "n")
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 弥生
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 弥生)　%>%
-    filter(弥生 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, Y)　%>%
+    filter(Y != 0) %>%
     count %>% 
     ungroup %>%
-    rename("Y" = "n") %>% 
-    dplyr::select(-弥生)
+    dplyr::select(-Y) %>%
+    rename("Y" = "n") 
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 古墳
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 古墳)　%>%
-    filter(古墳 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, K)　%>%
+    filter(K != 0) %>%
     count %>% 
     ungroup %>% 
-    rename("K" = "n") %>% 
-    dplyr::select(-古墳)
+    dplyr::select(-K) %>% 
+    rename("K" = "n")
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 奈良
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 奈良)　%>%
-    filter(奈良 != 0) %>% 
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, N)　%>%
+    filter(N != 0) %>% 
     count %>%
     ungroup %>%
-    rename("N" = "n") %>% 
-    dplyr::select(-奈良)
+    dplyr::select(-N) %>% 
+    rename("N" = "n")
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 平安
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 平安)　%>%
-    filter(平安 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, H)　%>%
+    filter(H != 0) %>%
     count %>% 
     ungroup %>% 
-    rename("H" = "n") %>% 
-    dplyr::select(-平安)
+    dplyr::select(-H) %>% 
+    rename("H" = "n")
 
  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 中世
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 中世)　%>%
-    filter(中世 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, M)　%>%
+    filter(M != 0) %>%
     count %>% 
     ungroup %>% 
-    dplyr::select(-中世) %>%
+    dplyr::select(-M) %>%
     rename("M" = "n") 
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 近世
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 近世)　%>%
-    filter(近世 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, E)　%>%
+    filter(E != 0) %>%
     count %>% 
     ungroup %>% 
-    dplyr::select(-近世) %>%
+    dplyr::select(-E) %>%
     rename("E" = "n") 
 
  Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 近代
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 近代)　%>%
-    filter(近代 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, D)　%>%
+    filter(D != 0) %>%
     count %>% 
     ungroup %>% 
-    dplyr::select(-近代) %>%
+    dplyr::select(-D) %>%
     rename("D" = "n") 
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
 
   # 時代不明
-  Saitama.summary2 <- Saitama.age %>% 
-    group_by(自治体コード, 不明)　%>%
-    filter(不明 != 0) %>%
+  Saitama.summary2 <- Saitama %>% 
+    group_by(自治体コード, U)　%>%
+    filter(U != 0) %>%
     count %>% 
     ungroup %>% 
-    dplyr::select(-不明) %>%
+    dplyr::select(-U) %>%
     rename("U" = "n")
 
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "自治体コード")
@@ -294,22 +302,18 @@ Saitama.summary1 <- Saitama %>%
 
   # 合計を計算・結合
 　Saitama.sum <- colSums(Saitama.summary1)
-  Saitama.sum$自治体コード <- 14130
+  Saitama.sum$自治体コード <- 11000
   Saitama.summary1 <- rbind(Saitama.summary1, Saitama.sum)
+  
+  #自治体コードでつないで区市町村名を追加
+  Saitama.summary1 <- Saitama.summary1 %>%
+                        left_join(dplyr::select(LGC,自治体コード,区市町村名), by = "自治体コード") %>%
+                        dplyr::select(自治体コード, 区市町村名, 遺跡数合計,P,J,Y,K,N,H,M,E,D,U)
+  
   # 一時保管オブジェクトを削除
   rm(Saitama.sum)
   rm(Saitama.summary2)
 
-#区市町村名追加
-  #自治体名の読み込み(more human readable)
-  LGC <- import("https://github.com/kotdijian/JASOSR/raw/master/14Kanagawa/LGC_14Kanagawa.csv", setclass= "tbl_df", encoding ="UTF-8" ) #LGC_14Kanagawa.csv=神奈川県自治体コードリスト
-  LGC <- rename(LGC,区市町村名 = 名称)
-
-  #自治体コードでつないで区市町村名を追加
-  Saitama.summary1 <- Saitama.summary1 %>%
-                          left_join(dplyr::select(LGC,自治体コード,区市町村名), by = "自治体コード") %>%
-                          dplyr::select(自治体コード, 区市町村名, 遺跡数合計, P, J, Y, K, N, H, M, E, D, U) #列名の並べ替え
-                          
 # .csv保存
 write.csv(Saitama.summary1, "13SaitamaSummary1.csv", row.names = FALSE, fileEncoding = "UTF-8")
 ```
