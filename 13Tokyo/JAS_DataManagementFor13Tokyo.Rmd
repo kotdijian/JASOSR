@@ -35,6 +35,8 @@ library("utf8")         #UTF-8エンコーディング対応
 library("bit64")        #UID13桁対応
 ```
 ```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#変数・データセットのクリア
+remove(list=ls())
 TokyoTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/13Tokyo/13Tokyo_total.csv", setclass= "tbl_df", encoding = "UTF-8") # TokyoTotalに原データcsvを読み込み、エンコードの指定に注意
 ```
 ```{r chunk2, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
@@ -49,7 +51,6 @@ str(TokyoTotal)
 #データフレームの先頭数行の内容を表示
 head(TokyoTotal)
 ```
-
 ```{r chunk5, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #データフレームの概要・基礎統計量を表示
 summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分位値、中央・平均値が計算される
