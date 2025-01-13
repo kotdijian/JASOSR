@@ -26,14 +26,16 @@ This is digitized geo-spatial data of archaeological sites in Tokyo, based on [T
 1. 基本データ  
 * 基本データは.csv形式(UTF-8, BOMなし)，以下の3ファイル  
 * 13Tokyo.csv: JASID+自治体コード+東京都遺跡地図収録8項目+位置座標(経度・緯度)  
+![Fig1_OriginalData][Fig1.png]
     * 内容：JASID+自治体コード+東京都遺跡地図収録8項目（遺跡番号、ふりがな、遺跡名、所在地、時代、種別、主な遺構／概要、主な出土品）+位置座標   
     * JASID(Japan Archaeological Site ID: 11ケタ)＝自治体コード(5ケタ)+遺跡番号(自治体ごと:4ケタ)+枝番号(2ケタ、枝番ナシは00)  
-    * 位置座標は、東京都遺跡地図を参照、目視により確認した代表点を取得した単点座標であり、シェープではない  
+    * 位置座標は、東京都遺跡地図を参照、目視により確認した代表点を取得した単点座標であり、ポリゴンやそれに基づく点座標ではない  
     * したがって**位置座標は東京都遺跡地図が提供するものではなく本データセット固有の情報である**  
     * **本データセットの提供者は位置座標の正確性を保証しない**  
 * 13TokyoAge.csv: 東京都遺跡地図【時代】列の入力項目を01ベクトルに変換したもの、JASID +自治体コード+遺跡番号+ふりがな+遺跡名+位置座標+時代別01ベクトル（P: 旧石器、J: 縄文、Y: 弥生、K: 古墳、N: 奈良、H: 平安、M: 中世（鎌倉〜安土桃山）、E: 近世（江戸）、D: 近代（明治以降）、U: 時代不明）  
 * 「[全国遺跡報告総覧](https://sitereports.nabunken.go.jp/ja)」の書誌情報・抄録情報との紐づけは将来的に実装する予定(したい) 
 * 13Tokyo_total.csv: 抹消データ、位置情報不明（東京都遺跡地図で確認不能）データを含むオリジナルデータ
+* **アーカイブデータ**
 * 13Tokyo_total2020.csv: 2020年作業時のオリジナルデータ 
 
 2. 自治体別データ(byMunicipalityサブディレクトリ)  *準備中*  
@@ -53,7 +55,7 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 プルリクエスト歓迎。大規模な変更はイシューからどうぞ。  
 
 ## Author／作成者
-Atsushi Noguchi ([kotodijian](https://github.com/kotdijian) or [@fujimicho](https://twitter.com/fujimicho)  
+Atsushi Noguchi ([kotodijian](https://github.com/kotdijian) or [@fujimicho](https://X.com/fujimicho)  
 
 
 ## Contributors／協力者  
