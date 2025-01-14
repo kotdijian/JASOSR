@@ -7,8 +7,9 @@ About: Spatial Data Repository Archaeological Sites in Japan
 - **JPRA-DB**: Palaeolithic Sites in the Japanese Islands : A Database (coming soon) 
     - 日本列島の旧石器時代遺跡データベース（[日本旧石器学会](http://palaeolithic.jp/data/index.htm))の更新・データ利用
     
-- **[TokyoMET](https://kotdijian.github.io/JASOSR/13Tokyo/)**: Archaeological Sites of Tokyo Metropolitan Area
-    - [東京都遺跡地図情報インターネット提供サービス](https://tokyo-iseki.metro.tokyo.lg.jp/)の所収データを.csv形式で提供します
+- **ArchaeoMap47**: Archaeological Site Database based on administrative data of cultural properties protection 
+    - [13Tokyo](https://kotdijian.github.io/JASOSR/13Tokyo/): Archaeological Sites of Tokyo Metropolitan Area
+        - [東京都遺跡地図情報インターネット提供サービス](https://tokyo-iseki.metro.tokyo.lg.jp/)の所収データを.csv形式で提供します
     
 - **Archaeoマイマップ**: Archaeology Maps on Google MyMaps (Japanese Contents only so far)
     - [東京都内の中世城館マップ](https://bit.ly/366VxUg): 付・東京百名城、『東京城址女子高生』掲載城跡
