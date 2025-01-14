@@ -26,7 +26,7 @@ This is digitized geo-spatial data of archaeological sites in Tokyo, based on [T
 1. 基本データ  
 * 基本データは.csv形式(UTF-8, BOMなし)，以下の3ファイル  
 * 13Tokyo.csv: JASID+自治体コード+東京都遺跡地図収録8項目+位置座標(経度・緯度)  
-![Fig1_OriginalData][Fig1.png]
+![Fig1_OriginalData][13Tokyo/Fig1.png]
     * 内容：JASID+自治体コード+東京都遺跡地図収録8項目（遺跡番号、ふりがな、遺跡名、所在地、時代、種別、主な遺構／概要、主な出土品）+位置座標   
     * JASID(Japan Archaeological Site ID: 11ケタ)＝自治体コード(5ケタ)+遺跡番号(自治体ごと:4ケタ)+枝番号(2ケタ、枝番ナシは00)  
     * 位置座標は、東京都遺跡地図を参照、目視により確認した代表点を取得した単点座標であり、ポリゴンやそれに基づく点座標ではない  
