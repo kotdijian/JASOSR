@@ -35,6 +35,9 @@ library("utf8")         #UTF-8エンコーディング対応
 library("bit64")        #UID13桁対応
 ```
 ```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+# データクリア
+remove(list=ls())
+# データ読み込み
 SaitamaTotal <- import("https://github.com/kotdijian/JASOSR/raw/master/11Saitama/11Saitama_total.csv", setclass= "tbl_df", encoding = "UTF-8") # SaitamaTotalに原データcsvを読み込み、エンコードの指定に注意
 ```
 ```{r chunk2, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
@@ -315,5 +318,5 @@ Saitama.summary1 <- Saitama %>%
   rm(Saitama.summary2)
 
 # .csv保存
-write.csv(Saitama.summary1, "13SaitamaSummary1.csv", row.names = FALSE, fileEncoding = "UTF-8")
+write.csv(Saitama.summary1, "11SaitamaSummary1.csv", row.names = FALSE, fileEncoding = "UTF-8")
 ```
