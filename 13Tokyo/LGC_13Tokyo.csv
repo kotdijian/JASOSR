@@ -1,28 +1,28 @@
-自治体コード,名称,よみがな,roman
-13100,区部,くぶ,TokyoMet Districts
-13101,千代田区,ちよだく,Chiyoda District
-13102,中央区,ちゅうおうく, Chuo District
-13103,港区,みなとく, Minato District
-13104,新宿区,しんじゅくく, Shinjuku District
-13105,文京区,ぶんきょうく, Bunkyo District
-13106,台東区,たいとうく, Taito District
-13107,墨田区,すみだく, Sumida District
-13108,江東区,こうとうく, Koto District
-13109,品川区,しながわく, Shinagawa District
-13110,目黒区,めぐろく, Meguro District
-13111,大田区,おおたく, Ota District
-13112,世田谷区,せたがやく, Setagaya District
-13113,渋谷区,しぶやく, Shibuya District
-13114,中野区,なかのく, Nakano District
-13115,杉並区,すぎなみく, Suginami District
-13116,豊島区,としまく, Toshima District
-13117,北区,きたく, Kita District
-13118,荒川区,あらかわく, Arakawa District
-13119,板橋区,いたばしく, Itabashi District
-13120,練馬区,ねりまく, Nerima District
-13121,足立区,あだちく, Adachi District
-13122,葛飾区,かつしかく, Katsushika District
-13123,江戸川区,えどがわく, Edogawa District
+LGC,Name,Furigana,roman
+13100,区部,くぶ,TokyoMet Wards
+13101,千代田区,ちよだく,Chiyoda Ward
+13102,中央区,ちゅうおうく, Chuo Ward
+13103,港区,みなとく, Minato Ward
+13104,新宿区,しんじゅくく, Shinjuku Ward
+13105,文京区,ぶんきょうく, Bunkyo Ward
+13106,台東区,たいとうく, Taito Ward
+13107,墨田区,すみだく, Sumida Ward
+13108,江東区,こうとうく, Koto Ward
+13109,品川区,しながわく, Shinagawa Ward
+13110,目黒区,めぐろく, Meguro Ward
+13111,大田区,おおたく, Ota Ward
+13112,世田谷区,せたがやく, Setagaya Ward
+13113,渋谷区,しぶやく, Shibuya Ward
+13114,中野区,なかのく, Nakano Ward
+13115,杉並区,すぎなみく, Suginami Ward
+13116,豊島区,としまく, Toshima Ward
+13117,北区,きたく, Kita Ward
+13118,荒川区,あらかわく, Arakawa Ward
+13119,板橋区,いたばしく, Itabashi Ward
+13120,練馬区,ねりまく, Nerima Ward
+13121,足立区,あだちく, Adachi Ward
+13122,葛飾区,かつしかく, Katsushika Ward
+13123,江戸川区,えどがわく, Edogawa Ward
 13200,多摩地区, たまちく, Tama Area
 13201,八王子市,はちおうじし, Hachioji City
 13202,立川市,たちかわし, Tachikawa City
