@@ -26,6 +26,9 @@ if(!require("rio")) install.packages('rio', repos='http://cran.us.r-project.org'
 if(!require("formattable")) install.packages('formattable', repos='http://cran.us.r-project.org')  
 if(!require("utf8")) install.packages("utf8", repos='http://cran.us.r-project.org')
 if(!require("bit64")) install.packages("bit64", repos='http://cran.us.r-project.org')
+if(!require("sp")) install.packages("sp", repos='http://cran.us.r-project.org')
+if(!require("sf")) install.packages("sf", repos='http://cran.us.r-project.org')
+if(!require("stringi")) install.packages("stringi", repos='http://cran.us.r-project.org')
 
  #パッケージのアクティベート
 library("tidyverse")    #下に詳述
@@ -33,7 +36,11 @@ library("rio")          #データの読み込み
 library("formattable")  #表の表示
 library("utf8")         #UTF-8エンコーディング対応
 library("bit64")        #UID13桁対応
-```
+library("sp")   　      # geospatial point dataframe
+library("sf")           # Simple Feature geospatial dataframe
+library("stringi")      #文字列変換（ローマ字化）
+
+```　
 ```{r chunk1, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #変数・データセットのクリア
 remove(list=ls())
@@ -58,85 +65,97 @@ summary(TokyoTotal) #数値データ列は、最大最小値、第1・第3四分
 ```
 ```{r chunk6, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 # 抹消データの削除：前のversion以降の抹消情報をデータセットから削除
-Tokyo <- filter(TokyoTotal, ふりがな != "（抹消）")
+Tokyo <- filter(TokyoTotal, SiteName_furigana != "（抹消）")
 
 nrow(Tokyo)
 ```
-
 ```{r chunk7, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+# 平面直角座標変換
+Tokyo.coord <- drop_na(TokyoTotal,Lon) #経度NAのレコードを除外して新しいオブジェクトに格納
 
+Tokyo.cartesian <- select(Tokyo.coord, Lon, Lat)
+Tokyo.cartesian = SpatialPoints(Tokyo.cartesian, proj4string = CRS("+proj=longlat +datum=WGS84"))#spatial point dataframe 変換
+Tokyo.cartesian <- spTransform(Tokyo.cartesian, CRS=CRS("+init=epsg:6677")) #WGS84>JGD2011CartIX
+Tokyo.cartesian <- as.data.frame(Tokyo.cartesian)  #Spatial point > normal dataframe
+Tokyo.cartesian <- rename(Tokyo.cartesian, X = coords.x1, Y = coords.x2)
+Tokyo.coord <- cbind(Tokyo.coord,Tokyo.cartesian)
+```
+```{r chunk8, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #旧石器時代
 Tokyo.palaeolithic <- Tokyo %>% 
                       filter(str_detect(時代, "旧石器")) %>% 
-                      mutate(旧石器 = 1)
+                      mutate(P = 1)
 
 #縄文時代
 Tokyo.jomon <- Tokyo %>% 
                       filter(str_detect(時代, "縄文")) %>% 
-                      mutate(縄文 = 1)
+                      mutate(J = 1)
 
 #弥生時代
 Tokyo.yayoi <- Tokyo %>% 
                       filter(str_detect(時代, "弥生")) %>% 
-                      mutate(弥生 = 1)
+                      mutate(Y = 1)
 
 #古墳時代
 Tokyo.kofun <- Tokyo %>% 
                       filter(str_detect(時代, "古墳")) %>% 
-                      mutate(古墳 = 1)
+                      mutate(K = 1)
 
 #奈良時代
 Tokyo.nara <- Tokyo %>% 
                       filter(str_detect(時代, "奈良")) %>% 
-                      mutate(奈良 = 1)
+                      mutate(N = 1)
 
 #平安時代
 Tokyo.heian <- Tokyo %>% 
                       filter(str_detect(時代, "平安")) %>% 
-                      mutate(平安 = 1)
+                      mutate(H = 1)
 
 #中世
 Tokyo.medieval <- Tokyo %>% 
                       filter(str_detect(時代, "中世")) %>% 
-                      mutate(中世 = 1)
+                      mutate(M = 1)
 
 #近世
 Tokyo.earlymodern <- Tokyo %>% 
                       filter(str_detect(時代, "近世")) %>% 
-                      mutate(近世 = 1)
+                      mutate(E = 1)
 
 #近代
 Tokyo.modern <- Tokyo %>% 
                       filter(str_detect(時代, "近代")) %>% 
-                      mutate(近代 = 1)
+                      mutate(D = 1)
 
 #時代不明
 Tokyo.unknown <- Tokyo %>% 
                       filter(str_detect(時代, "不明")) %>% 
-                      mutate(不明 = 1)
+                      mutate(U = 1)
 ```
-```{r chunk8, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk9, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #時代データ追加と統合
     Tokyo.age <- Tokyo %>%
-                          dplyr::select(JASID, 自治体コード, 遺跡番号, ふりがな, 遺跡名, 所在地, 時代, 緯度, 経度) %>%
-                          left_join(dplyr::select(Tokyo.palaeolithic, JASID, 旧石器),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.jomon, JASID, 縄文),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.yayoi, JASID, 弥生),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.kofun, JASID, 古墳),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.nara, JASID, 奈良),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.heian, JASID, 平安),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.medieval, JASID, 中世),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.earlymodern, JASID, 近世),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.modern, JASID, 近代),by = "JASID") %>%
-                          left_join(dplyr::select(Tokyo.unknown, JASID, 不明),by = "JASID") %>%
-                          replace_na(list(旧石器 =0, 縄文 =0, 弥生 = 0, 古墳 = 0, 奈良 = 0, 平安 = 0, 中世 = 0, 近世 = 0, 近代 = 0, 不明 = 0))
+                          dplyr::select(JASID, LGC, Site_no, SitaName_furigana, SiteName_original, Address, Chronology, Lon, Lat, X, Y) %>%
+                          left_join(dplyr::select(Tokyo.palaeolithic, JASID, P),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.jomon, JASID, J),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.yayoi, JASID, Y),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.kofun, JASID, K),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.nara, JASID, N),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.heian, JASID, H),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.medieval, JASID, M),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.earlymodern, JASID, E),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.modern, JASID, D),by = "JASID") %>%
+                          left_join(dplyr::select(Tokyo.unknown, JASID, U),by = "JASID") %>%
+                          replace_na(list(P = 0, J = 0, Y = 0, K = 0, N = 0, H = 0, M = 0, E = 0, D = 0, U = 0))
+```
+```{r chunk10, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
 ```
 ```{r chunk9, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #全データ書き出し（UTF-8)
 write.csv(Tokyo, "13Tokyo.csv", row.names=FALSE, fileEncoding = "UTF-8")
 write.csv(Tokyo.age, "13TokyoAge.csv", row.names=FALSE, fileEncoding = "UTF-8")
 ```
-```{r chunk10, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r chunk11, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #時代別データ書き出しUTF-8
 write.csv(Tokyo.palaeolithic, "byAge/13Tokyo_palaeolithic.csv", row.names=FALSE, fileEncoding = "UTF-8")
 write.csv(Tokyo.jomon, "byAge/13Tokyo_jomon.csv", row.names=FALSE, fileEncoding = "UTF-8")
@@ -150,7 +169,6 @@ write.csv(Tokyo.modern, "byAge/13Tokyo_modern.csv", row.names=FALSE, fileEncodin
 write.csv(Tokyo.unknown, "byAge/13Tokyo_unknown.csv", row.names=FALSE, fileEncoding = "UTF-8")
 ```
 ```{r chunk11, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
-Tokyo.coord <- drop_na(TokyoTotal,経度) #経度NAのレコードを除外して新しいオブジェクトに格納
 write.csv(Tokyo.coord, "SJS/13Tokyo_totalCoordSJS.csv", row.names = FALSE, fileEncoding = "CP932")　#Shift-JIS書き出し, ファイル名を適宜指定(全レコード)
 
 #時代別データ書き出し
@@ -184,6 +202,9 @@ write.csv(Tokyo.earlymodern, "SJS/13Tokyo_modernSJS.csv", row.names=FALSE, fileE
 Tokyo.unknown <- drop_na(Tokyo.unknown,経度)
 write.csv(Tokyo.unknown, "SJS/13Tokyo_unknownSJS.csv", row.names=FALSE, fileEncoding = "CP932")
 
+```
+```{r chunk}
+write.csv(a, "test", row.names=FALSE)
 ```
 ```{r chunk12, eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 #集計1:自治体別合計
