@@ -299,7 +299,7 @@ Saitama.summary1 <- Saitama %>%
   Saitama.summary1 <- left_join(Saitama.summary1, Saitama.summary2, by = "LGC")
 
   # NAを0に置換
-  Saitama.summary1[is.na(Saitama.summary1)] <- 0
+  Saitama.summary1 <- replace_na(Saitama.summary1, list(P=0, J=0, Y=0, K=0, N=0, H=0, M=0, E=0, D=0, U=0))
 
   # 合計を計算・結合
 　Saitama.sum <- colSums(Saitama.summary1)
