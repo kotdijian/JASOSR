@@ -1,31 +1,9 @@
-﻿code,Category,CategoryJP,Age,AgeJP,abb
-11,Prehistory,古代以前,Palaeolithic,旧石器,Pa
-12,Prehistory,古代以前,Jomon,縄文,Jo
-13,Prehistory,古代以前,Yayoi,弥生,Ya
-14,Prehistory,古代以前,Kofun,古墳,Ko
-21,Ancient,古代,AsukaHakuho,飛鳥白鳳,As
-22,Ancient,古代,Nara,奈良,Na
-23,Ancient,古代,Heian,平安,He
-20,Ancient,古代,Ancient,古代（細分不明）,An
-31,Medieval,中世,Kamakura,鎌倉,Ka
-32,Medieval,中世,Nabokucho,南北朝,Nb
-33,Medieval,中世,Muromachi,室町,Mu
-34,Medieval,中世,Sengoku,戦国,Se
-30,Medieval,中世,Medieval,中世（細分不明）,Me
-41,EarlyModern,近世,AzuchiMomoyama,安土桃山,Az
-42,EarlyModern,近世,Edo,江戸,Ed
-40,EarlyModern,近世,EarlyModern,近世（細分不明）,EM
-51,Modern,近代,Meiji,明治,Mj
-52,Modern,近代,Taisho,大正,Ta
-53,Modern,近代,Showa,昭和,Sh
-54,Modern,近代,Heisei,平成,Hs
-50,Modern,近代,Modern,近代（細分不明）,Mo
-61,Other,その他,ZokuJomon,続縄文,ZJ
-62,Other,その他,Satsumon,擦文,Sa
-63,Other,その他,Okhotsk,オホーツク文化期,Ok
-64,Other,その他,Tobinitai,トビニタイ文化期,To
-65,Other,その他,Ainu,アイヌ文化期,Ai
-66,Other,その他,OkinawaKaizuka,沖縄貝塚,OK
-67,Other,その他,Gusuku,グスク,Gu
-68,Other,その他,Mariana,マリアナ文化期,Ma
-99,Unknown,不明,Unknown,不明,Un
+﻿code,Criteria,CriteriaJP,DataType,Description,DescriptionJP,Note
+11,Site_no,遺跡番号,integer,"ID number registered by municipality, as indicated in TokyoMETmap",自治体登録の遺跡番号、東京都遺跡地図に登録,
+12,SiteName_furigana,ふりがな,String_JP,Phonetic reading of the original Site name,遺跡名のふりがな,固有名称を持たない場合（○○市No.##遺跡等）は空白の場合がある
+13,SiteName_original,遺跡名,String_JP,"The original site name in Japanese, as indicated in TokyoMETmap",遺跡名、東京都遺跡地図に登録の通り,
+14,Address,所在地,String_JP,Japanese address in domestic format (except postal code),所在地、住所表記,
+15,Chronology,時代,String_JP (listed),"Chronological sequences, as indicated in TokyoMETmap",時代区分,[旧石器時代][縄文時代（大別時期記載もあり）][弥生時代][古墳時代][奈良時代][平安時代][中世][近世][近代]
+16,SiteType,種別,String_JP,"Site type, as indicated in TokyoMETmap",遺跡種別,
+17,ArchaeologicalFeatures,主な遺構,String_JP,Major archaeological features from excavation,発掘調査で検出された主な遺構,
+18,MajorArtefacts,主な出土遺物,String_JP,Major artefacts from excavation,発掘調査で出土した主な遺物、表採資料を含む場合もある,
