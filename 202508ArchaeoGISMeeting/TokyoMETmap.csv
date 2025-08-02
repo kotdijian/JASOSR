@@ -1,4 +1,6 @@
-﻿code,Criteria,CriteriaJP,DataType,Description,DescriptionJP,Note
+code,Criteria,CriteriaJP,DataType,Description,DescriptionJP,Note
+11,LGC,自治体コード,
+11,Municipality,区市町村,String_JP,"Municipality name",自治体名,
 11,Site_no,遺跡番号,integer,"ID number registered by municipality, as indicated in TokyoMETmap",自治体登録の遺跡番号、東京都遺跡地図に登録,
 12,SiteName_furigana,ふりがな,String_JP,Phonetic reading of the original Site name,遺跡名のふりがな,固有名称を持たない場合（○○市No.##遺跡等）は空白の場合がある
 13,SiteName_original,遺跡名,String_JP,"The original site name in Japanese, as indicated in TokyoMETmap",遺跡名、東京都遺跡地図に登録の通り,
