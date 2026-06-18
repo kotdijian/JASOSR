@@ -11,7 +11,7 @@ About: Spatial Data Repository Archaeological Sites in Japan
     - 日本列島の旧石器時代遺跡データベース（[日本旧石器学会](http://palaeolithic.jp/data/index.htm))の更新・データ利用
     
 - **ArchaeoMap47**: Archaeological Site Database based on administrative data of cultural properties protection 
-    - [00General](https://kotdijian.github.io/JASOSR/00General/): Web resources of Administrative Archaeological Site Map and related Research DB
+    - [00General]((https://github.com/kotdijian/JASOSR/tree/master/00General): Web resources of Administrative Archaeological Site Map and related Research DB
         - 各都道府県・政令指定都市・基礎自治体（政令指定都市を除く）がWeb公開している遺跡地図のリソースと形式・ライセンスなどの一覧
         - 付・Web公開され二次利用可能な考古学関連データベース（網羅的ではない）
     - [13Tokyo](https://kotdijian.github.io/JASOSR/13Tokyo/): Archaeological Sites of Tokyo Metropolitan Area
