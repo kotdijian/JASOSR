@@ -1,0 +1,10 @@
+#,データベース,URL
+1,Archaeological Survey of Ireland,公式オープンデータ案内：https://www.archaeology.ie/collections-and-publications/open-data/ ／ データセット：https://data.gov.ie/dataset/national-monuments-service-archaeological-survey-of-ireland (National Monuments Service)
+2,Wreck Inventory of Ireland,データセット：https://data.gov.ie/dataset/national-monuments-service-wreck-inventory-of-ireland ／ 閲覧用Wreck Viewer：https://www.archaeology.ie/advice-and-support/locate-a-monument-or-wreck/wreck-viewer/ (National Monuments Service)
+3,National Heritage List for England—Scheduled Monuments,データダウンロード：https://historicengland.org.uk/listing/the-list/data-downloads/ ／ 検索画面：https://historicengland.org.uk/listing/the-list/ (ヒストリック・イングランド)
+4,Historic England Aerial Investigation Mapping,Aerial Archaeology Mapping Explorer：https://historicengland.org.uk/research/results/aerial-archaeology-mapping-explorer/ ／ 調査・作成方法：https://historicengland.org.uk/research/methods/airborne-remote-sensing/aerial-investigation/ (ヒストリック・イングランド)
+5,Pleiades Gazetteer of Ancient Places,https://pleiades.stoa.org/ (Pleiades)
+6,Open Context,https://opencontext.org/ (オープンコンテキスト)
+7,THANADOS,https://thanados.net/ (Thanados)
+8,An Archaeological Radiocarbon Database of Japan,データ公開版（Zenodo）：https://zenodo.org/records/8377215 ／ 論文・データ説明：https://openarchaeologydata.metajnl.com/articles/10.5334/joad.115 ／ 歴博検索版：https://www.rekihaku.ac.jp/up-cgi/login.pl?p=param%2Fesrd_en%2Fdb_param (Journal of Open Archaeology Data)
+9,PEOPLE 3000 Radiocarbon Database（p3k14c）,プロジェクト：https://people3k.github.io/ ／ 公式Rパッケージ：https://github.com/people3k/p3k14c (PEOPLE 3000 Radiocarbon Database)
