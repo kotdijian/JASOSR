@@ -2,7 +2,7 @@
 
 
 ### 凡例
-# 1. 都道府県公開遺跡地図 (ArchMap01_Prefecture.csv)
+# 1. [都道府県公開遺跡地図](https://github.com/kotdijian/JASOSR/edit/master/00General/ArchMap01_Prefecture.csv)
    -
    
 # 2. 政令指定都市公開遺跡地図 (ArchMap02_OrdinanceDsignated-City.csv)
