@@ -12,7 +12,7 @@
    - ◎：機械可読なGISデータを明確な条件で二次利用可能
    - —：閲覧のみ、またはGISデータのダウンロードを確認できない
    
-## 2. [政令指定都市公開遺跡地図](https://github.com/kotdijian/JASOSR/blob/master/00General/ArchMap02_OrdinanceDsignated-City.csv)
+## 2. [政令指定都市公開遺跡地図](https://github.com/kotdijian/JASOSR/blob/master/00General/ArchMap02_OrdinanceDsignatedCity.csv)
    ### 公開状況 ○：市域の周知の埋蔵文化財包蔵地の位置・範囲をウェブで確認できる
    - △：位置情報のみ、紙地図中心、または参考地図に限られ、包蔵地範囲を十分に確認できない
    - ×：公式なオンライン確認手段を確認できない
@@ -24,7 +24,7 @@
    - ×：無断複製・転載・再配布等を禁止
    - —：閲覧のみ。公式なデータダウンロードを確認できない
    
-# 3. [基礎自治体公開遺跡地図](https://github.com/kotdijian/JASOSR/blob/master/00General/ArchMap03_Municipality.csv)
+## 3. [基礎自治体公開遺跡地図](https://github.com/kotdijian/JASOSR/blob/master/00General/ArchMap03_Municipality.csv)
    ### ダウンロード・二次利用
    - ◎：機械可読な空間データと明示的なオープンライセンスあり
    - ○：データまたは一覧を利用条件付きで取得可能
