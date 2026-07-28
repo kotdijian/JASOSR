@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>遺跡地図</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  >
+
+  <!-- Leaflet.markercluster -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  >
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  >
+
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    .map-title {
+      background: rgba(255, 255, 255, 0.94);
+      padding: 8px 12px;
+      border-radius: 4px;
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .search-panel {
+      width: min(320px, calc(100vw - 80px));
+      background: rgba(255, 255, 255, 0.96);
+      padding: 10px;
+      border-radius: 4px;
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+    }
+
+    .search-panel input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #aaa;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+
+    .search-panel .status {
+      margin-top: 7px;
+      color: #444;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .popup-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .popup-table th,
+    .popup-table td {
+      padding: 3px 5px;
+      border-bottom: 1px solid #ddd;
+      vertical-align: top;
+    }
+
+    .popup-table th {
+      width: 6em;
+      color: #444;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .site-name {
+      margin: 0 0 7px;
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    .error {
+      color: #b00020;
+    }
+
+    @media (max-width: 600px) {
+      .map-title {
+        font-size: 15px;
+      }
+
+      .leaflet-control-layers {
+        max-width: 230px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <!-- Leaflet -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    crossorigin=""
+  ></script>
+
+  <!-- Leaflet.markercluster -->
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- Papa Parse: CSV読み込み -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <script>
+    "use strict";
+
+    /*
+     * GitHubリポジトリ内のCSVファイル名。
+     * index.htmlとCSVを同じディレクトリに置く場合はファイル名だけでよい。
+     */
+    const CSV_URL = "./13Tokyo_total.csv";
+
+    /*
+     * 初期表示位置。CSV読込後、全地点を含む範囲へ自動調整される。
+     */
+    const INITIAL_CENTER = [35.68, 139.70];
+    const INITIAL_ZOOM = 10;
+
+    /*
+     * 地理院タイル
+     */
+    const gsiStandard = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 18
+      }
+    );
+
+    const gsiPale = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 18
+      }
+    );
+
+    const gsiPhoto = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 18
+      }
+    );
+
+    const gsiRelief = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 15,
+        opacity: 0.9
+      }
+    );
+
+    /*
+     * 地図作成
+     */
+    const map = L.map("map", {
+      center: INITIAL_CENTER,
+      zoom: INITIAL_ZOOM,
+      layers: [gsiPale],
+      zoomControl: true
+    });
+
+    const baseMaps = {
+      "地理院 淡色地図": gsiPale,
+      "地理院 標準地図": gsiStandard,
+      "地理院 全国最新写真": gsiPhoto,
+      "地理院 色別標高図": gsiRelief
+    };
+
+    L.control.layers(baseMaps, null, {
+      collapsed: false,
+      position: "topright"
+    }).addTo(map);
+
+    /*
+     * タイトル
+     */
+    const titleControl = L.control({ position: "topleft" });
+
+    titleControl.onAdd = function () {
+      const div = L.DomUtil.create("div", "map-title");
+      div.textContent = "遺跡地図";
+      return div;
+    };
+
+    titleControl.addTo(map);
+
+    /*
+     * 検索パネル
+     */
+    const searchControl = L.control({ position: "topleft" });
+
+    searchControl.onAdd = function () {
+      const div = L.DomUtil.create("div", "search-panel");
+
+      div.innerHTML = `
+        <input
+          id="searchInput"
+          type="search"
+          placeholder="遺跡名・所在地・時代・種別で検索"
+          aria-label="遺跡検索"
+        >
+        <div id="status" class="status">CSVを読み込んでいます。</div>
+      `;
+
+      L.DomEvent.disableClickPropagation(div);
+      L.DomEvent.disableScrollPropagation(div);
+
+      return div;
+    };
+
+    searchControl.addTo(map);
+
+    /*
+     * 地点レイヤ
+     */
+    const markerCluster = L.markerClusterGroup({
+      chunkedLoading: true,
+      chunkInterval: 100,
+      chunkDelay: 20,
+      maxClusterRadius: 55,
+      showCoverageOnHover: false,
+      spiderfyOnMaxZoom: true
+    });
+
+    map.addLayer(markerCluster);
+
+    let allRecords = [];
+    let searchTimer = null;
+
+    /*
+     * HTML特殊文字をエスケープし、CSV内の文字列を安全に表示する。
+     */
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function displayValue(value) {
+      const text = String(value ?? "").trim();
+      return text === "" ? "－" : escapeHtml(text);
+    }
+
+    function buildPopup(row) {
+      const name = displayValue(row.SiteName_original);
+
+      return `
+        <h2 class="site-name">${name}</h2>
+        <table class="popup-table">
+          <tr>
+            <th>ふりがな</th>
+            <td>${displayValue(row.SiteName_furigana)}</td>
+          </tr>
+          <tr>
+            <th>所在地</th>
+            <td>${displayValue(row.Address)}</td>
+          </tr>
+          <tr>
+            <th>時代</th>
+            <td>${displayValue(row.Chronology)}</td>
+          </tr>
+          <tr>
+            <th>遺跡種別</th>
+            <td>${displayValue(row.SiteType)}</td>
+          </tr>
+          <tr>
+            <th>遺構</th>
+            <td>${displayValue(row.ArchaeologicalFeatures)}</td>
+          </tr>
+          <tr>
+            <th>主な遺物</th>
+            <td>${displayValue(row.MajorArtefacts)}</td>
+          </tr>
+          <tr>
+            <th>遺跡番号</th>
+            <td>${displayValue(row.Site_no)}</td>
+          </tr>
+          <tr>
+            <th>JASID</th>
+            <td>${displayValue(row.JASID)}</td>
+          </tr>
+          <tr>
+            <th>自治体コード</th>
+            <td>${displayValue(row.LGC)}</td>
+          </tr>
+          <tr>
+            <th>座標</th>
+            <td>${displayValue(row.Lat)}, ${displayValue(row.Lon)}</td>
+          </tr>
+        </table>
+      `;
+    }
+
+    function searchableText(row) {
+      return [
+        row.SiteName_original,
+        row.SiteName_furigana,
+        row.Address,
+        row.Chronology,
+        row.SiteType,
+        row.ArchaeologicalFeatures,
+        row.MajorArtefacts,
+        row.Site_no,
+        row.JASID,
+        row.LGC
+      ]
+        .map(value => String(value ?? "").toLowerCase())
+        .join(" ");
+    }
+
+    function createMarker(row) {
+      const lat = Number(row.Lat);
+      const lon = Number(row.Lon);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return null;
+      }
+
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        return null;
+      }
+
+      const marker = L.circleMarker([lat, lon], {
+        radius: 6,
+        weight: 1,
+        opacity: 0.9,
+        fillOpacity: 0.72
+      });
+
+      marker.bindPopup(buildPopup(row), {
+        maxWidth: 420,
+        minWidth: 280
+      });
+
+      marker.bindTooltip(
+        escapeHtml(row.SiteName_original || "名称未記載"),
+        {
+          direction: "top",
+          offset: [0, -5]
+        }
+      );
+
+      return marker;
+    }
+
+    function renderRecords(records, fitBounds = false) {
+      markerCluster.clearLayers();
+
+      const markers = [];
+
+      for (const row of records) {
+        const marker = createMarker(row);
+
+        if (marker) {
+          markers.push(marker);
+        }
+      }
+
+      markerCluster.addLayers(markers);
+
+      const status = document.getElementById("status");
+      status.textContent =
+        `${markers.length.toLocaleString("ja-JP")}件を表示` +
+        (records.length !== allRecords.length
+          ? `／全${allRecords.length.toLocaleString("ja-JP")}件`
+          : "");
+
+      if (fitBounds && markers.length > 0) {
+        const bounds = L.featureGroup(markers).getBounds();
+
+        if (bounds.isValid()) {
+          map.fitBounds(bounds.pad(0.05), {
+            maxZoom: 15
+          });
+        }
+      }
+    }
+
+    function filterRecords(keyword) {
+      const words = keyword
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean);
+
+      if (words.length === 0) {
+        return allRecords;
+      }
+
+      return allRecords.filter(row => {
+        const text = row._searchText;
+        return words.every(word => text.includes(word));
+      });
+    }
+
+    /*
+     * CSV読込
+     *
+     * GitHub Pagesでは、HTMLファイルを直接ダブルクリックして開くのではなく、
+     * 公開された https://...github.io/.../ のURLから閲覧する。
+     */
+    Papa.parse(CSV_URL, {
+      download: true,
+      header: true,
+      skipEmptyLines: "greedy",
+      dynamicTyping: false,
+
+      complete: function (results) {
+        const requiredColumns = ["Lat", "Lon", "SiteName_original"];
+        const fields = results.meta.fields || [];
+        const missingColumns = requiredColumns.filter(
+          column => !fields.includes(column)
+        );
+
+        if (missingColumns.length > 0) {
+          const status = document.getElementById("status");
+          status.classList.add("error");
+          status.textContent =
+            `CSVに必要な列がありません: ${missingColumns.join(", ")}`;
+          return;
+        }
+
+        allRecords = results.data
+          .filter(row => String(row.Lat ?? "").trim() !== "")
+          .filter(row => String(row.Lon ?? "").trim() !== "")
+          .map(row => ({
+            ...row,
+            _searchText: searchableText(row)
+          }));
+
+        renderRecords(allRecords, true);
+
+        const searchInput = document.getElementById("searchInput");
+
+        searchInput.addEventListener("input", function () {
+          clearTimeout(searchTimer);
+
+          searchTimer = setTimeout(() => {
+            const filtered = filterRecords(searchInput.value);
+            renderRecords(filtered, false);
+          }, 180);
+        });
+
+        if (results.errors.length > 0) {
+          console.warn("CSV解析時の警告:", results.errors);
+        }
+      },
+
+      error: function (error) {
+        console.error(error);
+
+        const status = document.getElementById("status");
+        status.classList.add("error");
+        status.innerHTML =
+          "CSVを読み込めませんでした。<br>" +
+          "CSVのファイル名、配置場所、文字コード（UTF-8）を確認してください。";
+      }
+    });
+  </script>
+</body>
+</html>
