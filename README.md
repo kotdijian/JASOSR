@@ -7,15 +7,17 @@ About: Spatial Data Repository Archaeological Sites in Japan
 - **JAA2025Poster**: Long-term history of human occupation and landscape utilisation in meso-macro scale spatial dynamics of archaeological sites in SW Kanto Plain (A poster presentation at the 91st Annual Meeting of the Japanese Archaeological Association, 25 May 2025, Tsukuba University)
     - [「考古遺跡の中広域動態から見た土地・景観利用の変遷史」日本考古学協会第91回総会ポスター発表（2025/5/25筑波大学）](https://github.com/kotdijian/JASOSR/tree/master/JAA2025poster)
        
-- **JPRA-DB**: Palaeolithic Sites in the Japanese Islands : A Database (coming soon) 
-    - 日本列島の旧石器時代遺跡データベース（[日本旧石器学会](http://palaeolithic.jp/data/index.htm))の更新・データ利用
-    
 - **ArchaeoMap47**: Archaeological Site Database based on administrative data of cultural properties protection 
     - [00General](https://github.com/kotdijian/JASOSR/tree/master/00General): Web resources of Administrative Archaeological Site Map and related Research DB
         - 各都道府県・政令指定都市・基礎自治体（政令指定都市を除く）がWeb公開している遺跡地図のリソースと形式・ライセンスなどの一覧
         - 付・Web公開され二次利用可能な考古学関連データベース（網羅的ではない）
     - [13Tokyo](https://kotdijian.github.io/JASOSR/13Tokyo/): Archaeological Sites of Tokyo Metropolitan Area
         - [東京都遺跡地図情報インターネット提供サービス](https://tokyo-iseki.metro.tokyo.lg.jp/)の所収データを.csv形式で提供します
+    
+- **LeafletViewer**: Simple Map Viewer on *Leaflet*
+
+- **JPRA-DB**: Palaeolithic Sites in the Japanese Islands : A Database (coming soon) 
+    - 日本列島の旧石器時代遺跡データベース（[日本旧石器学会](http://palaeolithic.jp/data/index.htm))の更新・データ利用
     
 - **Archaeoマイマップ**: Archaeology Maps on Google MyMaps (Japanese Contents only so far)
     - [東京都内の中世城館マップ](https://bit.ly/366VxUg): 付・東京百名城、『東京城址女子高生』掲載城跡
