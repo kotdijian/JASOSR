@@ -14,7 +14,7 @@ About: Spatial Data Repository Archaeological Sites in Japan
     - [13Tokyo](https://kotdijian.github.io/JASOSR/13Tokyo/): Archaeological Sites of Tokyo Metropolitan Area
         - [東京都遺跡地図情報インターネット提供サービス](https://tokyo-iseki.metro.tokyo.lg.jp/)の所収データを.csv形式で提供します
     
-- **LeafletViewer**: Simple Map Viewer on *Leaflet*
+- [**LeafletViewer**](https://kotdijian.github.io/JASOSR/01LeafletViewer): Simple Map Viewer on *Leaflet*
 
 - **JPRA-DB**: Palaeolithic Sites in the Japanese Islands : A Database (coming soon) 
     - 日本列島の旧石器時代遺跡データベース（[日本旧石器学会](http://palaeolithic.jp/data/index.htm))の更新・データ利用
