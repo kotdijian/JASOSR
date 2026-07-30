@@ -1,9 +1,9 @@
 {
   "layers": [
     {
-      "file": "13107_Sumida.geojson",
+      "file": "geojson/13107_Sumida.geojson",
       "name": "周知の埋蔵文化財包蔵地範囲：墨田区",
       "visible": true
-    },
+    }
    ]
 }
