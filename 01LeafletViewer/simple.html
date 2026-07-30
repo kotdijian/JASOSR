@@ -2,7 +2,10 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
 
   <title>遺跡地図ビューワー（シンプル版）</title>
 
@@ -97,7 +100,12 @@
       line-height: 1.45;
     }
 
-    .popup-table {
+    .search-panel .status + .status {
+      margin-top: 3px;
+    }
+
+    .popup-table,
+    .polygon-popup-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
@@ -105,7 +113,9 @@
     }
 
     .popup-table th,
-    .popup-table td {
+    .popup-table td,
+    .polygon-popup-table th,
+    .polygon-popup-table td {
       padding: 3px 5px;
       border-bottom: 1px solid #ddd;
       vertical-align: top;
@@ -118,7 +128,15 @@
       white-space: nowrap;
     }
 
-    .site-name {
+    .polygon-popup-table th {
+      width: 8em;
+      color: #444;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .site-name,
+    .polygon-name {
       margin: 0 0 7px;
       font-size: 16px;
       line-height: 1.4;
@@ -146,8 +164,20 @@
       display: none;
     }
 
+    .polygon-tooltip {
+      padding: 2px 5px;
+      border: 1px solid rgba(0, 0, 0, 0.3);
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #111;
+      box-shadow: none;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
     .error {
-      color: #b00020;
+      color: #b00020 !important;
     }
 
     @media (max-width: 600px) {
@@ -181,13 +211,28 @@
     "use strict";
 
     /*
-     * GitHubリポジトリ内のCSVファイル名。
+     * CSVファイル。
      *
-     * index.htmlとCSVを同じディレクトリに置く場合：
-     * "./13Tokyo_total.csv"
-     *  ファイルパスに注意
+     * index.html:
+     *   01LeafletViewer/index.html
+     *
+     * CSV:
+     *   13Tokyo/13Tokyo_total.csv
      */
-    const CSV_URL = "../13Tokyo/13Tokyo_total.csv";
+    const CSV_URL =
+      "../13Tokyo/13Tokyo_total.csv";
+
+    /*
+     * 遺跡範囲ポリゴンのmanifest。
+     *
+     * manifest.json:
+     *   13Tokyo/sitePolygon/manifest.json
+     *
+     * GeoJSON:
+     *   13Tokyo/sitePolygon/geojson/*.geojson
+     */
+    const SITE_POLYGON_MANIFEST_URL =
+      "../13Tokyo/sitePolygon/manifest.json";
 
     /*
      * 初期表示位置。
@@ -197,9 +242,32 @@
     const INITIAL_ZOOM = 10;
 
     /*
-     * 「ズーム15以上で常時表示」を選択した場合の閾値。
+     * 「ズーム15以上で常時表示」の閾値。
      */
     const LABEL_MIN_ZOOM = 15;
+
+    /*
+     * ポリゴンの標準表示設定。
+     */
+    const SITE_POLYGON_DEFAULT_STYLE = {
+      color: "#c43c35",
+      weight: 2,
+      opacity: 0.9,
+      fillColor: "#e76f51",
+      fillOpacity: 0.22
+    };
+
+    /*
+     * ポリゴンのタイトルとして優先する属性名。
+     *
+     * 該当属性がない場合は、
+     * name、SiteName、manifestのnameの順で使用する。
+     */
+    const SITE_POLYGON_TITLE_FIELDS = [
+      "SiteName_original",
+      "SiteName",
+      "name"
+    ];
 
     /*
      * 地理院タイル
@@ -251,6 +319,13 @@
       zoomControl: true
     });
 
+    /*
+     * ポリゴンを背景地図より上、
+     * ポイントマーカーより下に表示する。
+     */
+    map.createPane("sitePolygonPane");
+    map.getPane("sitePolygonPane").style.zIndex = "350";
+
     const baseMaps = {
       "地理院 淡色地図": gsiPale,
       "地理院 標準地図": gsiStandard,
@@ -258,10 +333,20 @@
       "地理院 色別標高図": gsiRelief
     };
 
-    L.control.layers(baseMaps, null, {
-      collapsed: false,
-      position: "topright"
-    }).addTo(map);
+    /*
+     * レイヤコントロール。
+     *
+     * 後から「遺跡範囲」をオーバーレイとして追加するため、
+     * 変数に保持する。
+     */
+    const layerControl = L.control.layers(
+      baseMaps,
+      null,
+      {
+        collapsed: false,
+        position: "topright"
+      }
+    ).addTo(map);
 
     /*
      * タイトル
@@ -271,8 +356,14 @@
     });
 
     titleControl.onAdd = function () {
-      const div = L.DomUtil.create("div", "map-title");
-      div.textContent = "遺跡地図ビューワー（シンプル版）";
+      const div = L.DomUtil.create(
+        "div",
+        "map-title"
+      );
+
+      div.textContent =
+        "遺跡地図ビューワー（シンプル版）";
+
       return div;
     };
 
@@ -286,7 +377,10 @@
     });
 
     searchControl.onAdd = function () {
-      const div = L.DomUtil.create("div", "search-panel");
+      const div = L.DomUtil.create(
+        "div",
+        "search-panel"
+      );
 
       div.innerHTML = `
         <input
@@ -297,7 +391,9 @@
         >
 
         <div class="label-mode-control">
-          <label for="labelMode">遺跡名表示</label>
+          <label for="labelMode">
+            遺跡名表示
+          </label>
 
           <select id="labelMode">
             <option value="hover" selected>
@@ -316,6 +412,10 @@
 
         <div id="status" class="status">
           CSVを読み込んでいます。
+        </div>
+
+        <div id="polygonStatus" class="status">
+          遺跡範囲を読み込んでいます。
         </div>
       `;
 
@@ -342,6 +442,14 @@
     map.addLayer(markerCluster);
 
     /*
+     * 遺跡範囲ポリゴンをまとめるレイヤ。
+     *
+     * manifestに記載された全GeoJSONを、
+     * シンプル版では一つのレイヤとして扱う。
+     */
+    const sitePolygonGroup = L.featureGroup();
+
+    /*
      * 全レコードと現在表示中のレコードを保持する。
      */
     let allRecords = [];
@@ -349,8 +457,7 @@
     let searchTimer = null;
 
     /*
-     * HTML特殊文字をエスケープし、
-     * CSV内の文字列を安全に表示する。
+     * HTML特殊文字をエスケープする。
      */
     function escapeHtml(value) {
       return String(value ?? "")
@@ -370,10 +477,12 @@
     }
 
     /*
-     * ポップアップを生成する。
+     * ポイントのポップアップを生成する。
      */
     function buildPopup(row) {
-      const name = displayValue(row.SiteName_original);
+      const name = displayValue(
+        row.SiteName_original
+      );
 
       return `
         <h2 class="site-name">${name}</h2>
@@ -436,6 +545,489 @@
     }
 
     /*
+     * GeoJSON属性の全項目をポップアップ表にする。
+     */
+    function buildPolygonPropertyTable(properties) {
+      const entries = Object.entries(
+        properties || {}
+      ).filter(([key]) => {
+        /*
+         * アンダースコアで始まる内部属性は表示しない。
+         */
+        return !String(key).startsWith("_");
+      });
+
+      if (entries.length === 0) {
+        return `
+          <div>
+            属性情報はありません。
+          </div>
+        `;
+      }
+
+      const rows = entries
+        .map(([key, value]) => {
+          let displayText;
+
+          if (
+            typeof value === "object" &&
+            value !== null
+          ) {
+            displayText = escapeHtml(
+              JSON.stringify(value)
+            );
+          } else {
+            displayText = displayValue(value);
+          }
+
+          return `
+            <tr>
+              <th>${escapeHtml(key)}</th>
+              <td>${displayText}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      return `
+        <table class="polygon-popup-table">
+          ${rows}
+        </table>
+      `;
+    }
+
+    /*
+     * GeoJSONの属性から遺跡名を取得する。
+     */
+    function getPolygonTitle(
+      properties,
+      manifestLayerName
+    ) {
+      for (
+        const field of SITE_POLYGON_TITLE_FIELDS
+      ) {
+        const value = properties?.[field];
+
+        if (
+          value !== undefined &&
+          value !== null &&
+          String(value).trim() !== ""
+        ) {
+          return String(value);
+        }
+      }
+
+      if (
+        manifestLayerName &&
+        String(manifestLayerName).trim() !== ""
+      ) {
+        return String(manifestLayerName);
+      }
+
+      return "遺跡範囲";
+    }
+
+    /*
+     * GeoJSONレイヤの表示スタイルを生成する。
+     *
+     * 優先順位：
+     * 1. GeoJSONのproperties
+     * 2. manifest.jsonの設定
+     * 3. 標準設定
+     */
+    function getPolygonStyle(
+      feature,
+      manifestDefinition
+    ) {
+      const properties =
+        feature?.properties || {};
+
+      const numericValue = (
+        value,
+        fallback
+      ) => {
+        const number = Number(value);
+
+        return Number.isFinite(number)
+          ? number
+          : fallback;
+      };
+
+      return {
+        pane: "sitePolygonPane",
+
+        color:
+          properties.polygon_color ||
+          properties.stroke ||
+          manifestDefinition.color ||
+          SITE_POLYGON_DEFAULT_STYLE.color,
+
+        weight: numericValue(
+          properties.polygon_weight ??
+          properties["stroke-width"] ??
+          manifestDefinition.weight,
+          SITE_POLYGON_DEFAULT_STYLE.weight
+        ),
+
+        opacity: numericValue(
+          properties.polygon_opacity ??
+          properties["stroke-opacity"] ??
+          manifestDefinition.opacity,
+          SITE_POLYGON_DEFAULT_STYLE.opacity
+        ),
+
+        fillColor:
+          properties.fill_color ||
+          properties.fill ||
+          manifestDefinition.fillColor ||
+          SITE_POLYGON_DEFAULT_STYLE.fillColor,
+
+        fillOpacity: numericValue(
+          properties.fill_opacity ??
+          properties["fill-opacity"] ??
+          manifestDefinition.fillOpacity,
+          SITE_POLYGON_DEFAULT_STYLE.fillOpacity
+        )
+      };
+    }
+
+    /*
+     * manifest.jsonの内容を標準化する。
+     *
+     * 対応形式：
+     *
+     * {
+     *   "layers": [
+     *     {
+     *       "file": "geojson/site_001.geojson",
+     *       "name": "遺跡範囲001"
+     *     }
+     *   ]
+     * }
+     *
+     * または
+     *
+     * {
+     *   "files": [
+     *     "geojson/site_001.geojson"
+     *   ]
+     * }
+     */
+    function normalizeManifest(manifest) {
+      if (Array.isArray(manifest.layers)) {
+        return manifest.layers
+          .filter(item => item && item.file)
+          .map((item, index) => ({
+            file: item.file,
+
+            name:
+              item.name ||
+              `遺跡範囲${index + 1}`,
+
+            color: item.color,
+            weight: item.weight,
+            opacity: item.opacity,
+            fillColor: item.fillColor,
+            fillOpacity: item.fillOpacity
+          }));
+      }
+
+      if (Array.isArray(manifest.files)) {
+        return manifest.files
+          .filter(Boolean)
+          .map((file, index) => ({
+            file,
+            name: `遺跡範囲${index + 1}`
+          }));
+      }
+
+      throw new Error(
+        "manifest.jsonにlayersまたはfiles配列がありません。"
+      );
+    }
+
+    /*
+     * JSONファイルを取得する。
+     */
+    async function fetchJson(url) {
+      const response = await fetch(url, {
+        cache: "no-cache"
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `${url}を取得できませんでした。` +
+          ` HTTP ${response.status}`
+        );
+      }
+
+      return response.json();
+    }
+
+    /*
+     * 一つのGeoJSONファイルからLeafletレイヤを生成する。
+     */
+    function createSitePolygonLayer(
+      geojson,
+      manifestDefinition
+    ) {
+      let geoJsonLayer = null;
+
+      geoJsonLayer = L.geoJSON(geojson, {
+        pane: "sitePolygonPane",
+
+        style: function (feature) {
+          return getPolygonStyle(
+            feature,
+            manifestDefinition
+          );
+        },
+
+        onEachFeature: function (
+          feature,
+          featureLayer
+        ) {
+          const properties =
+            feature.properties || {};
+
+          const title = getPolygonTitle(
+            properties,
+            manifestDefinition.name
+          );
+
+          featureLayer.bindPopup(
+            `
+              <h2 class="polygon-name">
+                ${escapeHtml(title)}
+              </h2>
+
+              ${buildPolygonPropertyTable(properties)}
+            `,
+            {
+              maxWidth: 430,
+              minWidth: 280
+            }
+          );
+
+          featureLayer.bindTooltip(
+            escapeHtml(title),
+            {
+              sticky: true,
+              direction: "top",
+              className: "polygon-tooltip"
+            }
+          );
+
+          /*
+           * マウスオーバー時に強調表示する。
+           */
+          featureLayer.on(
+            "mouseover",
+            function () {
+              const normalStyle =
+                getPolygonStyle(
+                  feature,
+                  manifestDefinition
+                );
+
+              featureLayer.setStyle({
+                weight:
+                  Number(normalStyle.weight) + 1,
+
+                fillOpacity: Math.min(
+                  Number(normalStyle.fillOpacity) + 0.12,
+                  0.8
+                )
+              });
+
+              /*
+               * SVGレンダリングの場合のみ利用できる。
+               */
+              if (featureLayer.bringToFront) {
+                featureLayer.bringToFront();
+              }
+            }
+          );
+
+          /*
+           * マウスが外れたら元のスタイルへ戻す。
+           */
+          featureLayer.on(
+            "mouseout",
+            function () {
+              geoJsonLayer.resetStyle(
+                featureLayer
+              );
+            }
+          );
+        }
+      });
+
+      return geoJsonLayer;
+    }
+
+    /*
+     * manifest.jsonを読み込み、
+     * 記載された全GeoJSONを表示する。
+     */
+    async function loadSitePolygons() {
+      const polygonStatus =
+        document.getElementById(
+          "polygonStatus"
+        );
+
+      try {
+        const manifest = await fetchJson(
+          SITE_POLYGON_MANIFEST_URL
+        );
+
+        const definitions =
+          normalizeManifest(manifest);
+
+        if (definitions.length === 0) {
+          polygonStatus.textContent =
+            "manifest.jsonにGeoJSONが登録されていません。";
+
+          return;
+        }
+
+        let loadedFiles = 0;
+        let totalFeatures = 0;
+        const loadErrors = [];
+
+        /*
+         * GeoJSONを1ファイルずつ順番に読み込む。
+         *
+         * ファイル数が増えた場合でも、
+         * 同時アクセスが集中しにくい。
+         */
+        for (
+          let index = 0;
+          index < definitions.length;
+          index += 1
+        ) {
+          const definition =
+            definitions[index];
+
+          polygonStatus.textContent =
+            `遺跡範囲を読み込んでいます。` +
+            `${index + 1}／${definitions.length}`;
+
+          /*
+           * manifest.jsonを基準に相対パスを解決する。
+           *
+           * 例：
+           * manifest:
+           *   ../13Tokyo/sitePolygon/manifest.json
+           *
+           * file:
+           *   geojson/site_001.geojson
+           */
+          const geoJsonUrl = new URL(
+            definition.file,
+            new URL(
+              SITE_POLYGON_MANIFEST_URL,
+              window.location.href
+            )
+          ).href;
+
+          try {
+            const geojson =
+              await fetchJson(geoJsonUrl);
+
+            if (
+              !geojson ||
+              (
+                geojson.type !== "FeatureCollection" &&
+                geojson.type !== "Feature"
+              )
+            ) {
+              throw new Error(
+                "GeoJSONの形式がFeatureCollectionまたはFeatureではありません。"
+              );
+            }
+
+            const layer =
+              createSitePolygonLayer(
+                geojson,
+                definition
+              );
+
+            sitePolygonGroup.addLayer(layer);
+
+            loadedFiles += 1;
+
+            if (
+              geojson.type === "FeatureCollection" &&
+              Array.isArray(geojson.features)
+            ) {
+              totalFeatures +=
+                geojson.features.length;
+            } else if (
+              geojson.type === "Feature"
+            ) {
+              totalFeatures += 1;
+            }
+          } catch (error) {
+            console.error(
+              `GeoJSON読込エラー: ${definition.file}`,
+              error
+            );
+
+            loadErrors.push({
+              file: definition.file,
+              error
+            });
+          }
+        }
+
+        /*
+         * 一つ以上読み込めた場合のみ、
+         * 地図とレイヤコントロールへ追加する。
+         */
+        if (loadedFiles > 0) {
+          sitePolygonGroup.addTo(map);
+
+          layerControl.addOverlay(
+            sitePolygonGroup,
+            "遺跡範囲"
+          );
+        }
+
+        if (loadedFiles === 0) {
+          polygonStatus.classList.add("error");
+
+          polygonStatus.textContent =
+            "遺跡範囲を読み込めませんでした。";
+
+          return;
+        }
+
+        polygonStatus.textContent =
+          `${loadedFiles.toLocaleString("ja-JP")}ファイル・` +
+          `${totalFeatures.toLocaleString("ja-JP")}件の遺跡範囲を表示`;
+
+        if (loadErrors.length > 0) {
+          polygonStatus.classList.add("error");
+
+          polygonStatus.textContent +=
+            `／読込失敗${loadErrors.length.toLocaleString("ja-JP")}ファイル`;
+        }
+      } catch (error) {
+        console.error(
+          "遺跡範囲manifest読込エラー:",
+          error
+        );
+
+        polygonStatus.classList.add("error");
+
+        polygonStatus.innerHTML =
+          "遺跡範囲を読み込めませんでした。<br>" +
+          "manifest.jsonの配置場所と記述内容を確認してください。";
+      }
+    }
+
+    /*
      * 全文検索用文字列を生成する。
      */
     function searchableText(row) {
@@ -451,7 +1043,9 @@
         row.JASID,
         row.LGC
       ]
-        .map(value => String(value ?? "").toLowerCase())
+        .map(value =>
+          String(value ?? "").toLowerCase()
+        )
         .join(" ");
     }
 
@@ -468,7 +1062,8 @@
      *   すべてのズームで常時表示
      */
     function getLabelMode() {
-      const selector = document.getElementById("labelMode");
+      const selector =
+        document.getElementById("labelMode");
 
       return selector
         ? selector.value
@@ -539,14 +1134,16 @@
       /*
        * SiteName_originalをTooltipとして設定する。
        */
-      const permanent = shouldShowPermanentLabel();
+      const permanent =
+        shouldShowPermanentLabel();
 
       marker.bindTooltip(
         escapeHtml(
-          row.SiteName_original || "名称未記載"
+          row.SiteName_original ||
+          "名称未記載"
         ),
         {
-          permanent: permanent,
+          permanent,
           direction: "top",
           offset: [0, -5],
           className: permanent
@@ -565,9 +1162,6 @@
       records,
       fitBounds = false
     ) {
-      /*
-       * 検索結果や現在の表示状態を保持する。
-       */
       currentRecords = records;
 
       markerCluster.clearLayers();
@@ -584,7 +1178,8 @@
 
       markerCluster.addLayers(markers);
 
-      const status = document.getElementById("status");
+      const status =
+        document.getElementById("status");
 
       status.textContent =
         `${markers.length.toLocaleString("ja-JP")}件を表示` +
@@ -638,9 +1233,6 @@
 
     /*
      * ズーム変更時の処理。
-     *
-     * 「ズーム15以上で常時表示」が選択されている場合のみ、
-     * Tooltipの常時表示状態を更新する。
      */
     map.on("zoomend", function () {
       if (
@@ -655,12 +1247,15 @@
     });
 
     /*
-     * CSV読込
+     * ポリゴン読込を開始する。
      *
-     * GitHub Pagesでは、HTMLファイルを直接ダブルクリックして
-     * 開くのではなく、公開された
-     * https://...github.io/.../
-     * のURLから閲覧する。
+     * CSV読込とは独立して実行するため、
+     * 片方の読込に失敗してももう一方は表示できる。
+     */
+    loadSitePolygons();
+
+    /*
+     * CSV読込
      */
     Papa.parse(CSV_URL, {
       download: true,
@@ -675,11 +1270,13 @@
           "SiteName_original"
         ];
 
-        const fields = results.meta.fields || [];
+        const fields =
+          results.meta.fields || [];
 
         const missingColumns =
           requiredColumns.filter(
-            column => !fields.includes(column)
+            column =>
+              !fields.includes(column)
           );
 
         if (missingColumns.length > 0) {
@@ -715,10 +1312,14 @@
         );
 
         const searchInput =
-          document.getElementById("searchInput");
+          document.getElementById(
+            "searchInput"
+          );
 
         const labelMode =
-          document.getElementById("labelMode");
+          document.getElementById(
+            "labelMode"
+          );
 
         /*
          * 検索入力
