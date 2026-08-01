@@ -47,9 +47,8 @@ This is digitized geo-spatial data of archaeological sites in Tokyo, based on [T
     * "13Tokyo.csv"の【時代】列の入力項目により時代別に分割したもの(時代別リスト間で重複あり)  
     * ファイル命名規則："13Tokyo_total_"に各時代名を付す(palaeolithic, jomon, yayoi, kofun, nara, heian, medieval, earlymodern, unknown  
 
-4. SJSデータ（SJSサブディレクトリ）
-    * 各時代別の一覧リスト（3.時代別データと同等）をShiftJIS（CP932）で保存したもの
-
+4. 関連データ
+   
 ## Contributing／コントリビューション
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.  
 プルリクエスト歓迎。大規模な変更はイシューからどうぞ。  
