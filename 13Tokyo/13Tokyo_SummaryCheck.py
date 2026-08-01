@@ -3,6 +3,9 @@
 東京都遺跡地図 API 自治体別件数照合スクリプト
 ============================================================
 
+pandas, requestsを使用
+python -m pip install pandas requests
+
 【概要】
 
 1. LGC_13Tokyo.csv の Name 列にある区市町村名を順番に使い、
