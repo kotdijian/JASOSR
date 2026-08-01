@@ -31,3 +31,10 @@
    - △：PDF・画像等を保存可能だが、二次利用条件が不明確
    - ×：転載・加工・再配布等を禁止または要許諾
    - —：閲覧用WebGIS等のみで、一括ダウンロードを確認できない
+
+## 4. 関連データ
+   ###Town boundary polygons:
+      Source:
+      [Government Statistics Portal (e-Stat) 2020 Population Census – Town and Block Boundary Data](https://www.e-stat.go.jp/)
+      The original data were processed by the author.
+      Only Tokyo Metropolis was extracted and converted to GeoPackage (GPKG) for use in this repository.
