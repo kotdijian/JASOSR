@@ -59,22 +59,82 @@ pandasがインストールされていない場合は、ターミナルで以�
     python -m pip install pandas
 
 
-【実行方法】
+【【実行方法】
 
-1. 下記の INPUT_CSV と OUTPUT_CSV を、実際のファイル配置に
-   合わせて設定する。
+1. 下記の INPUT_CSV を、実際のファイル配置に合わせて設定する。
 
-2. ターミナルで、このPythonファイルがある場所へ移動する。
+2. ターミナル（WindowsではコマンドプロンプトまたはPowerShell）を開く。
 
-3. 次のように実行する。
+3. このPythonファイルが保存されているフォルダへ移動する。
 
-    python chronology_flag.py
+【macOS の例】
 
-macOS等で python コマンドがPython 3を指していない場合：
+Pythonファイルが
 
-    python3 chronology_flag.py
+    /Users/username/Documents/GitHub/MyRepository/scripts/
 
+にある場合
 
+    cd "/Users/username/Documents/GitHub/MyRepository/scripts"
+    
+【Homebrew版Pythonを利用している場合】
+
+HomebrewでインストールしたPythonでは、
+PEP 668（Externally Managed Environment）により、
+システム環境へ直接 pip install を実行できない場合がある。
+
+その場合は、このスクリプト用の仮想環境を作成して利用する。
+
+初回のみ
+
+    python3 -m venv .venv
+
+仮想環境を有効化
+
+    source .venv/bin/activate
+
+必要なライブラリをインストール
+
+    python -m pip install pandas
+
+スクリプトを実行
+
+    python 13Tokyo_Chronology.py
+
+作業終了後
+
+    deactivate
+
+仮想環境（.venv）は一度作成すればよく、
+以後は「有効化 → スクリプト実行」のみで利用できる。
+
+GitHubリポジトリで管理する場合は、
+.venv フォルダはコミットせず、
+.gitignore に追加することを推奨する。
+
+    .venv/
+
+【Windows の例（コマンドプロンプト・PowerShell共通）】
+
+Pythonファイルが
+
+    C:/Users/username/Documents/GitHub/MyRepository/scripts/
+
+にある場合
+
+    cd "C:/Users/username/Documents/GitHub/MyRepository/scripts"
+
+4. 次のコマンドを実行する。
+
+macOS
+
+    python3 13Tokyo_Chronology.py
+
+Windows
+
+    python 13Tokyo_Chronology.py
+
+（環境によっては Windows でも python3 を使用する場合がある。）
 【パス指定例】
 
 PythonファイルとCSVが同じフォルダの場合：
@@ -102,7 +162,7 @@ Pythonファイルが scripts フォルダ、CSVが 13Tokyo フォルダに
 
 既定では次のファイルを生成する。
 
-    13Tokyo_total_flags.csv
+    13Tokyo_chronology.csv
 
 元のCSVは上書きしない。
 
@@ -136,7 +196,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 INPUT_CSV = SCRIPT_DIR / "13Tokyo_total.csv"
 
-OUTPUT_CSV = SCRIPT_DIR / "13Tokyo_total_flags.csv"
+OUTPUT_CSV = SCRIPT_DIR / "13Tokyo_chronology.csv"
 
 
 # ============================================================
