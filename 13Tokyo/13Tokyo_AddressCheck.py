@@ -892,9 +892,16 @@ def spatial_join_points(
     points: gpd.GeoDataFrame,
     boundaries: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
-    """ポイントと町丁・字等境界を空間結合する。"""
+    """
+    ポイントと町丁・字等境界を空間結合する。
+    """
     boundary_view = boundaries[
-        ["_LGC", "_TOWN_RAW", "_TOWN_NORMALIZED", "geometry"]
+        [
+            "_LGC",
+            "_TOWN_RAW",
+            "_TOWN_NORMALIZED",
+            "geometry",
+        ]
     ].copy()
 
     joined = gpd.sjoin(
@@ -904,21 +911,85 @@ def spatial_join_points(
         predicate=SPATIAL_JOIN_PREDICATE,
     )
 
-    return pd.DataFrame(joined.drop(columns="geometry"))
+    matched_count = int(
+        joined["index_right"].notna().sum()
+    )
+
+    matched_source_count = int(
+        joined.loc[
+            joined["index_right"].notna(),
+            "_SOURCE_INDEX",
+        ].nunique()
+    )
+
+    print(
+        "空間結合結果: "
+        f"有効ポイント={len(points):,}件、"
+        f"結合行={matched_count:,}件、"
+        f"境界特定ポイント={matched_source_count:,}件"
+    )
+
+    if matched_source_count == 0:
+        print(
+            "警告: ポイントと町丁目ポリゴンが"
+            "1件も空間結合されませんでした。"
+        )
+
+        print(
+            f"ポイントCRS: {points.crs}"
+        )
+
+        print(
+            f"境界CRS: {boundaries.crs}"
+        )
+
+        print(
+            "ポイント範囲: "
+            f"{points.total_bounds.tolist()}"
+        )
+
+        print(
+            "境界範囲: "
+            f"{boundaries.total_bounds.tolist()}"
+        )
+
+    return pd.DataFrame(
+        joined.drop(columns="geometry")
+    )
 
 
 def build_spatial_matches(
     joined: pd.DataFrame,
 ) -> dict[int, list[dict[str, str]]]:
-    """元CSV行indexごとに空間結合候補をまとめる。"""
+    """
+    元CSV行indexごとに空間結合候補をまとめる。
+
+    先頭がアンダースコアの列名は、pandas.DataFrame.itertuples()
+    では属性名が変更されるため、iterrows()と列名アクセスを使う。
+    """
     result: dict[int, list[dict[str, str]]] = {}
 
-    for source_index, group in joined.groupby("_SOURCE_INDEX"):
+    for source_index, group in joined.groupby(
+        "_SOURCE_INDEX",
+        dropna=False,
+    ):
         matches: list[dict[str, str]] = []
 
-        for row in group.itertuples(index=False):
-            boundary_lgc = str(getattr(row, "_LGC", "") or "")
-            town_raw = str(getattr(row, "_TOWN_RAW", "") or "")
+        for _, row in group.iterrows():
+            boundary_lgc_value = row.get("_LGC", "")
+            town_raw_value = row.get("_TOWN_RAW", "")
+
+            boundary_lgc = (
+                ""
+                if pd.isna(boundary_lgc_value)
+                else str(boundary_lgc_value).strip()
+            )
+
+            town_raw = (
+                ""
+                if pd.isna(town_raw_value)
+                else str(town_raw_value).strip()
+            )
 
             if not boundary_lgc or not town_raw:
                 continue
