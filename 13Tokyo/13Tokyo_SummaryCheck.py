@@ -446,7 +446,7 @@ def collect_api_counts(
 def sum_api_counts_by_lgc(
     dataframe: pd.DataFrame,
     lgc_values: list[str],
-) -> int | pd.NA:
+) -> int | type(pd.NA):
     """
     指定したLGC群のAPI件数を合計する。
 
