@@ -2,39 +2,56 @@
 
 """
 ============================================================
-東京都遺跡位置・町丁目境界チェック（改訂版）
+東京都遺跡位置・町丁字境界チェック（負荷最適化版）
 ============================================================
 
 【概要】
 
-13Tokyo_total.csv の LGC・Address・Lat・Lon を使い、
-TownBoundary.gpkg（13Tokyoレイヤ）の町丁・字等境界と照合する。
+13Tokyo_total.csv の LGC・Address・Lat・Lon と、
+TownBoundary.gpkg の 13Tokyo レイヤを照合する。
 
-従来の「Address文字列から町丁目ポリゴンを先に探す」方式ではなく、
-次の順序で判定する。
+判定を次の3列へ分離する。
 
-1. Lat・Lonからポイントを作成する
-2. ポイントが入る町丁・字等ポリゴンを空間結合で取得する
-3. ポイントの自治体コードとCSVのLGCが一致するか確認する
-4. Addressを複数の地名候補に分割する
-5. ポリゴン側の町丁・字等名称と次の順序で照合する
+    LGCCheck
+    TownCheck
+    OverallCheck
 
-   ・完全一致
-   ・表記正規化後の一致
-   ・親町名一致（例：鑓水 ↔ 鑓水二丁目）
-   ・旧地名・別名対応表による一致
+LGCCheck:
+    Match
+    Mismatch
+    Unresolved
+    InvalidCoordinate
 
-問題のない行は出力しない。次の行だけを
-13Tokyo_CheckAddress.csv に出力する。
+TownCheck:
+    ExactMatch
+    NormalizedMatch
+    PartialMatch
+    ParentNameMatch
+    AliasMatch
+    Mismatch
+    Unresolved
+    NotEvaluated
 
-・InvalidCoordinate       座標が欠損または不正
-・SpatialUnresolved       ポイントが町丁・字等境界に入らない
-・MunicipalityMismatch    ポイントの自治体とLGCが一致しない
-・AddressUnresolved       Addressから地名候補を抽出できない
-・TownMismatch            自治体は一致するが町丁・字等名称が一致しない
+OverallCheck:
+    OK
+    LGCMismatch
+    TownMismatch
+    LGCAndTownMismatch
+    Unresolved
+    InvalidCoordinate
 
-ExactMatch、NormalizedMatch、ParentNameMatch、AliasMatch は正常扱いとし、
-出力しない。
+問題のあるレコードだけを 13Tokyo_CheckAddress.csv に出力する。
+
+【高速化方針】
+
+1. GeoPackageは実行時に1回だけ読み込む。
+2. 町丁字名称一覧はLGC別に1回だけ構築する。
+3. ポイントと境界の空間結合は全件まとめて1回だけ行う。
+4. 通常は座標地点の町丁字名だけをAddressと直接比較する。
+5. LGC別町丁字一覧の部分一致検索は、直接比較で解決しない行だけに限定する。
+6. 部分一致検索では長い名称を優先する。
+7. 同じAddress・LGCの解析結果をキャッシュする。
+8. 検索辞書にはgeometryを重複保持しない。
 
 【想定ディレクトリ】
 
@@ -42,62 +59,36 @@ JASOSR/
 ├─ 13Tokyo/
 │  ├─ 13Tokyo_total.csv
 │  ├─ 13Tokyo_AddressCheck.py
-│  ├─ LGC_13Tokyo.csv                  （任意。ただし推奨）
-│  └─ 13Tokyo_CheckAddress.csv         （実行後に生成）
+│  ├─ LGC_13Tokyo.csv
+│  └─ 13Tokyo_CheckAddress.csv
 │
 └─ 00General/
    ├─ TownBoundary.gpkg
    │  └─ 13Tokyo レイヤ
-   └─ TownName_Alias_13Tokyo.csv       （任意）
+   └─ TownName_Alias_13Tokyo.csv   （任意）
 
-【任意の別名対応表】
-
-TownName_Alias_13Tokyo.csv を置く場合は、次の列を使用する。
+【別名表（任意）】
 
     LGC,OldName,CurrentName
 
-例：
-
-    13201,旧大字名,現在町名
-    13201,旧大字名,現在町名一丁目
-
-同じOldNameに複数のCurrentNameを登録してよい。
-ファイルが存在しない場合も処理は継続する。
-
-【LGC_13Tokyo.csv】
-
-存在する場合は次の列を利用し、Address先頭の自治体名を除去する。
-
-    LGC,Name
-
-例：
-
-    13101,千代田区
-    13201,八王子市
-
-ファイルがない場合は、Address先頭にある「○○区」「○○市」等を
-簡易規則で除去する。
-
-【必要なライブラリ】
+【必要ライブラリ】
 
     python -m pip install pandas geopandas pyogrio shapely
 
-【実行例：macOS】
+【実行】
 
     cd "/Users/noguchiatsushi/Documents/GitHub/JASOSR/13Tokyo"
     source .venv/bin/activate
     python 13Tokyo_AddressCheck.py
-
-【文字コード】
-
-CSVはUTF-8を使用する。
 
 ============================================================
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 import re
 import unicodedata
 
@@ -106,7 +97,7 @@ import pandas as pd
 
 
 # ============================================================
-# 入出力パス
+# 入出力
 # ============================================================
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -132,7 +123,7 @@ ALIAS_CSV = (
 
 
 # ============================================================
-# CSV列名
+# 入力CSV列
 # ============================================================
 
 ADDRESS_COLUMN = "Address"
@@ -142,11 +133,9 @@ LON_COLUMN = "Lon"
 
 
 # ============================================================
-# 境界データの列設定
+# 境界属性列
 # ============================================================
 
-# 列名が確定している場合は文字列で指定する。
-# Noneの場合は下記候補から自動検出する。
 BOUNDARY_LGC_COLUMN: str | None = None
 BOUNDARY_PREF_COLUMN: str | None = None
 BOUNDARY_CITY_COLUMN: str | None = None
@@ -196,27 +185,27 @@ BOUNDARY_TOWN_COLUMN_CANDIDATES = [
 # 動作設定
 # ============================================================
 
-OUTPUT_ENCODING = "utf-8"
 TARGET_CRS = "EPSG:4326"
+OUTPUT_ENCODING = "utf-8"
 
-# LGC共通率がこの値未満の場合は、境界側LGC生成方法に問題がある
-# 可能性が高いため停止する。
 MIN_LGC_OVERLAP_RATIO = 0.50
-
-# 空間結合で境界線上も候補に含めるため intersects を使う。
 SPATIAL_JOIN_PREDICATE = "intersects"
 
-# 正常扱いにする判定
-NORMAL_MATCH_RESULTS = {
+# 部分一致フォールバックで検索する町名の最小文字数。
+# 1文字名称は偶然一致が多いため除外する。
+MIN_PARTIAL_NAME_LENGTH = 2
+
+NORMAL_TOWN_RESULTS = {
     "ExactMatch",
     "NormalizedMatch",
+    "PartialMatch",
     "ParentNameMatch",
     "AliasMatch",
 }
 
 
 # ============================================================
-# 表記正規化
+# 正規化
 # ============================================================
 
 KANJI_DIGIT_MAP = str.maketrans({
@@ -241,16 +230,18 @@ MUNICIPALITY_SUFFIX_PATTERN = re.compile(
 )
 
 CHOME_SUFFIX_PATTERN = re.compile(
-    r"(?P<base>.+?)(?P<number>[0-9]+)丁目$"
+    r"^(?P<base>.+?)(?P<number>[0-9]+)丁目$"
 )
 
 
-# ============================================================
-# 汎用関数
-# ============================================================
+@dataclass(frozen=True)
+class TownEntry:
+    raw: str
+    normalized: str
+    parent: str
+
 
 def normalize_unicode(value: object) -> str:
-    """NFKCで全角・半角等を統一する。"""
     if value is None:
         return ""
 
@@ -264,11 +255,11 @@ def normalize_unicode(value: object) -> str:
 
 def normalize_name(value: object) -> str:
     """
-    町丁・字等名称の照合用表記を作る。
+    比較用表記。
 
     ・NFKC
-    ・空白・区切り記号を除去
-    ・漢数字を算用数字に変換
+    ・空白、区切り記号除去
+    ・丁目に使われる漢数字を算用数字化
     """
     text = normalize_unicode(value)
 
@@ -282,12 +273,14 @@ def normalize_name(value: object) -> str:
 
 
 def normalize_lgc_value(value: object) -> str:
-    """自治体コードを5桁文字列へ正規化する。"""
     if value is None:
         return ""
 
-    text = str(value).strip()
-    text = re.sub(r"\.0$", "", text)
+    text = re.sub(
+        r"\.0$",
+        "",
+        str(value).strip(),
+    )
     digits = re.sub(r"\D", "", text)
 
     if not digits:
@@ -300,31 +293,40 @@ def normalize_lgc_value(value: object) -> str:
 
 
 def normalize_pref_code(value: object) -> str:
-    """都道府県コードを2桁へ正規化する。"""
     digits = re.sub(r"\D", "", str(value or ""))
     return digits[-2:].zfill(2) if digits else ""
 
 
 def normalize_city_code(value: object) -> str:
-    """市区町村部分コードを3桁へ正規化する。"""
-    text = re.sub(r"\.0$", "", str(value or "").strip())
+    text = re.sub(
+        r"\.0$",
+        "",
+        str(value or "").strip(),
+    )
     digits = re.sub(r"\D", "", text)
 
     if not digits:
         return ""
 
-    # すでに5桁以上なら末尾3桁ではなく、先頭5桁の後半3桁を使う。
     if len(digits) >= 5:
         return digits[:5][-3:]
 
     return digits.zfill(3)[-3:]
 
 
+def get_parent_name(normalized_name: str) -> str:
+    match = CHOME_SUFFIX_PATTERN.fullmatch(normalized_name)
+
+    if match:
+        return match.group("base")
+
+    return normalized_name
+
+
 def find_column(
     columns: pd.Index,
     candidates: list[str],
 ) -> str | None:
-    """候補列名を大文字小文字を無視して探す。"""
     lookup = {
         str(column).lower(): str(column)
         for column in columns
@@ -358,26 +360,24 @@ def validate_required_columns(
 
 
 # ============================================================
-# 境界データ読み込み・LGC生成
+# 境界データ
 # ============================================================
 
 def build_boundary_lgc(
     boundaries: gpd.GeoDataFrame,
 ) -> tuple[pd.Series, str]:
     """
-    境界データから5桁LGCを生成する。
+    5桁LGC生成の優先順位:
 
-    優先順位：
-    1. 明示指定されたLGC列
-    2. KEY_CODE等の先頭5桁
+    1. 明示した列
+    2. KEY_CODEの先頭5桁
     3. PREF + CITY
     4. 直接LGC候補列
     """
     if BOUNDARY_LGC_COLUMN is not None:
         if BOUNDARY_LGC_COLUMN not in boundaries.columns:
             raise KeyError(
-                "指定した境界LGC列がありません: "
-                f"{BOUNDARY_LGC_COLUMN}"
+                f"境界LGC列がありません: {BOUNDARY_LGC_COLUMN}"
             )
 
         return (
@@ -418,23 +418,25 @@ def build_boundary_lgc(
         )
     )
 
-    if pref_column is not None and city_column is not None:
+    if (
+        pref_column is not None
+        and city_column is not None
+    ):
         if pref_column not in boundaries.columns:
             raise KeyError(
-                f"指定した都道府県コード列がありません: {pref_column}"
+                f"都道府県コード列がありません: {pref_column}"
             )
 
         if city_column not in boundaries.columns:
             raise KeyError(
-                f"指定した市区町村コード列がありません: {city_column}"
+                f"市区町村コード列がありません: {city_column}"
             )
 
-        lgc = (
+        return (
             boundaries[pref_column].map(normalize_pref_code)
-            + boundaries[city_column].map(normalize_city_code)
+            + boundaries[city_column].map(normalize_city_code),
+            f"{pref_column}+{city_column}",
         )
-
-        return lgc, f"{pref_column}+{city_column}"
 
     direct_column = find_column(
         boundaries.columns,
@@ -443,12 +445,14 @@ def build_boundary_lgc(
 
     if direct_column is not None:
         return (
-            boundaries[direct_column].map(normalize_lgc_value),
+            boundaries[direct_column].map(
+                normalize_lgc_value
+            ),
             direct_column,
         )
 
     raise KeyError(
-        "境界データから自治体コードを生成できませんでした。\n"
+        "境界データからLGCを生成できません。\n"
         f"現在の列: {', '.join(map(str, boundaries.columns))}"
     )
 
@@ -459,8 +463,7 @@ def detect_boundary_town_column(
     if BOUNDARY_TOWN_COLUMN is not None:
         if BOUNDARY_TOWN_COLUMN not in boundaries.columns:
             raise KeyError(
-                "指定した町丁・字等名称列がありません: "
-                f"{BOUNDARY_TOWN_COLUMN}"
+                f"町丁字名称列がありません: {BOUNDARY_TOWN_COLUMN}"
             )
 
         return BOUNDARY_TOWN_COLUMN
@@ -472,7 +475,7 @@ def detect_boundary_town_column(
 
     if found is None:
         raise KeyError(
-            "町丁・字等名称列を特定できませんでした。\n"
+            "町丁字名称列を特定できません。\n"
             f"現在の列: {', '.join(map(str, boundaries.columns))}"
         )
 
@@ -484,11 +487,12 @@ def read_town_boundaries() -> tuple[
     str,
     str,
 ]:
-    """GeoPackageから町丁・字等境界を読み込む。"""
     if not TOWN_BOUNDARY_GPKG.exists():
         raise FileNotFoundError(
-            f"町丁目GeoPackageが見つかりません: {TOWN_BOUNDARY_GPKG}"
+            f"GeoPackageが見つかりません: {TOWN_BOUNDARY_GPKG}"
         )
+
+    started = perf_counter()
 
     boundaries = gpd.read_file(
         TOWN_BOUNDARY_GPKG,
@@ -503,26 +507,32 @@ def read_town_boundaries() -> tuple[
 
     if boundaries.crs is None:
         raise ValueError(
-            "町丁・字等境界にCRSが設定されていません。"
+            "町丁字境界にCRSが設定されていません。"
         )
 
     town_column = detect_boundary_town_column(boundaries)
     boundary_lgc, lgc_source = build_boundary_lgc(boundaries)
 
     boundaries = boundaries.to_crs(TARGET_CRS)
+
     boundaries = boundaries.loc[
         boundaries.geometry.notna()
         & ~boundaries.geometry.is_empty
     ].copy()
 
-    # boundariesを抽出した後も元indexでSeriesが整列される。
-    boundaries["_LGC"] = boundary_lgc.loc[boundaries.index]
+    boundaries["_LGC"] = (
+        boundary_lgc.loc[boundaries.index]
+        .fillna("")
+        .astype(str)
+    )
+
     boundaries["_TOWN_RAW"] = (
         boundaries[town_column]
         .fillna("")
         .astype(str)
         .str.strip()
     )
+
     boundaries["_TOWN_NORMALIZED"] = (
         boundaries["_TOWN_RAW"].map(normalize_name)
     )
@@ -532,24 +542,88 @@ def read_town_boundaries() -> tuple[
         & boundaries["_TOWN_NORMALIZED"].ne("")
     ].copy()
 
-    # 出力に必要な列だけ残す。
     boundaries = boundaries[
-        ["_LGC", "_TOWN_RAW", "_TOWN_NORMALIZED", "geometry"]
+        [
+            "_LGC",
+            "_TOWN_RAW",
+            "_TOWN_NORMALIZED",
+            "geometry",
+        ]
     ].copy()
+
+    print(
+        f"境界読込・整形: {perf_counter() - started:.2f}秒"
+    )
 
     return boundaries, town_column, lgc_source
 
 
+def build_town_index(
+    boundaries: gpd.GeoDataFrame,
+) -> dict[str, tuple[TownEntry, ...]]:
+    """
+    LGC別の町丁字名辞書を一度だけ作る。
+
+    geometryは保持しない。
+    名称を長い順に並べ、部分一致時に最長名称を優先する。
+    """
+    started = perf_counter()
+    result: dict[str, tuple[TownEntry, ...]] = {}
+
+    unique_table = (
+        boundaries[
+            ["_LGC", "_TOWN_RAW", "_TOWN_NORMALIZED"]
+        ]
+        .drop_duplicates()
+    )
+
+    for lgc, group in unique_table.groupby(
+        "_LGC",
+        sort=False,
+    ):
+        entries = [
+            TownEntry(
+                raw=str(row["_TOWN_RAW"]),
+                normalized=str(row["_TOWN_NORMALIZED"]),
+                parent=get_parent_name(
+                    str(row["_TOWN_NORMALIZED"])
+                ),
+            )
+            for _, row in group.iterrows()
+            if len(str(row["_TOWN_NORMALIZED"])) >= MIN_PARTIAL_NAME_LENGTH
+        ]
+
+        entries.sort(
+            key=lambda entry: len(entry.normalized),
+            reverse=True,
+        )
+
+        result[str(lgc)] = tuple(entries)
+
+    total_names = sum(
+        len(entries)
+        for entries in result.values()
+    )
+
+    print(
+        "町丁字検索辞書: "
+        f"{len(result):,}自治体、"
+        f"{total_names:,}名称、"
+        f"{perf_counter() - started:.2f}秒"
+    )
+
+    return result
+
+
 # ============================================================
-# 自治体マスター・別名表
+# 自治体名・別名
 # ============================================================
 
 def read_lgc_master() -> dict[str, str]:
-    """LGC→自治体名の辞書を作る。ファイルがなければ空辞書。"""
     if not LGC_MASTER_CSV.exists():
         print(
-            "注意: LGC_13Tokyo.csvがないため、"
-            "Address先頭の自治体名は簡易規則で除去します。"
+            "注意: LGC_13Tokyo.csvがありません。"
+            "自治体名除去は簡易規則を使用します。"
         )
         return {}
 
@@ -568,9 +642,9 @@ def read_lgc_master() -> dict[str, str]:
 
     result: dict[str, str] = {}
 
-    for row in master.itertuples(index=False):
-        lgc = normalize_lgc_value(getattr(row, "LGC"))
-        name = normalize_unicode(getattr(row, "Name"))
+    for _, row in master.iterrows():
+        lgc = normalize_lgc_value(row["LGC"])
+        name = normalize_unicode(row["Name"])
 
         if lgc and name:
             result[lgc] = name
@@ -582,13 +656,10 @@ def read_alias_table() -> dict[
     tuple[str, str],
     set[str],
 ]:
-    """
-    (LGC, 正規化旧地名) → 正規化現地名集合 の辞書を作る。
-    """
     if not ALIAS_CSV.exists():
         print(
-            "情報: TownName_Alias_13Tokyo.csvはありません。"
-            "別名照合を省略します。"
+            "情報: 別名対応表はありません。"
+            "AliasMatchを省略します。"
         )
         return {}
 
@@ -605,24 +676,22 @@ def read_alias_table() -> dict[
         ALIAS_CSV.name,
     )
 
-    alias_map: dict[tuple[str, str], set[str]] = {}
+    result: dict[tuple[str, str], set[str]] = {}
 
-    for row in alias_df.itertuples(index=False):
-        lgc = normalize_lgc_value(getattr(row, "LGC"))
-        old_name = normalize_name(getattr(row, "OldName"))
-        current_name = normalize_name(getattr(row, "CurrentName"))
+    for _, row in alias_df.iterrows():
+        lgc = normalize_lgc_value(row["LGC"])
+        old_name = normalize_name(row["OldName"])
+        current_name = normalize_name(row["CurrentName"])
 
-        if not lgc or not old_name or not current_name:
-            continue
+        if lgc and old_name and current_name:
+            result.setdefault(
+                (lgc, old_name),
+                set(),
+            ).add(current_name)
 
-        alias_map.setdefault(
-            (lgc, old_name),
-            set(),
-        ).add(current_name)
+    print(f"別名対応表: {len(result):,}キー")
 
-    print(f"別名対応表: {len(alias_map):,}キー")
-
-    return alias_map
+    return result
 
 
 # ============================================================
@@ -634,7 +703,6 @@ def strip_municipality_name(
     lgc: str,
     municipality_names: dict[str, str],
 ) -> str:
-    """Address先頭の自治体名を除去する。"""
     text = normalize_unicode(address)
 
     if not text:
@@ -648,46 +716,31 @@ def strip_municipality_name(
         if text.startswith(name):
             return text[len(name):].lstrip()
 
-    # マスターがない、または一致しない場合の簡易除去。
-    first_split = re.split(r"[\s\u3000]+", text, maxsplit=1)
+    split = re.split(
+        r"[\s\u3000]+",
+        text,
+        maxsplit=1,
+    )
 
-    if len(first_split) == 2 and MUNICIPALITY_SUFFIX_PATTERN.fullmatch(
-        first_split[0]
+    if (
+        len(split) == 2
+        and MUNICIPALITY_SUFFIX_PATTERN.fullmatch(split[0])
     ):
-        return first_split[1].strip()
+        return split[1].strip()
 
     return text
 
 
-def extract_address_candidates(
-    address: str,
-    lgc: str,
-    municipality_names: dict[str, str],
+def split_address_candidates(
+    body: str,
 ) -> list[str]:
-    """
-    Addressを複数の地名候補へ分割する。
-
-    例：
-      大田区 西糀谷一丁目 西糀谷二丁目
-      → [西糀谷一丁目, 西糀谷二丁目]
-    """
-    body = strip_municipality_name(
-        address,
-        lgc,
-        municipality_names,
-    )
-
-    if not body:
-        return []
-
     raw_candidates = [
         item.strip()
         for item in ADDRESS_SEPARATORS_PATTERN.split(body)
         if item.strip()
     ]
 
-    # 同じ候補を順序維持で除去。
-    unique_candidates: list[str] = []
+    result: list[str] = []
     seen: set[str] = set()
 
     for candidate in raw_candidates:
@@ -697,117 +750,172 @@ def extract_address_candidates(
             continue
 
         seen.add(normalized)
-        unique_candidates.append(candidate)
+        result.append(candidate)
 
-    return unique_candidates
-
-
-# ============================================================
-# 地名照合
-# ============================================================
-
-def get_parent_name(normalized_name: str) -> str:
-    """「○○1丁目」から「○○」を返す。丁目がなければ元の値。"""
-    match = CHOME_SUFFIX_PATTERN.fullmatch(normalized_name)
-
-    if match:
-        return match.group("base")
-
-    return normalized_name
+    return result
 
 
-def classify_name_match(
-    lgc: str,
-    address_candidates: list[str],
-    boundary_towns: list[str],
-    alias_map: dict[tuple[str, str], set[str]],
-) -> tuple[str, str, str]:
+def longest_non_overlapping_matches(
+    normalized_address: str,
+    town_entries: tuple[TownEntry, ...],
+) -> list[TownEntry]:
     """
-    地名候補とポイント所在町丁・字等名称を照合する。
+    LGC別町名一覧からAddress内の候補を抽出する。
 
-    戻り値：
-      (判定, 一致したAddress候補, 一致した境界名称)
+    長い名称を先に検索し、すでに採用した文字範囲と重なる
+    短い名称を除外する。
     """
-    if not address_candidates:
-        return "AddressUnresolved", "", ""
+    accepted: list[tuple[int, int, TownEntry]] = []
 
-    normalized_candidates = [
-        (raw, normalize_name(raw))
-        for raw in address_candidates
-        if normalize_name(raw)
-    ]
+    for entry in town_entries:
+        name = entry.normalized
 
-    normalized_towns = [
-        (raw, normalize_name(raw))
-        for raw in boundary_towns
-        if normalize_name(raw)
-    ]
+        if not name:
+            continue
 
-    # 1. 完全一致（原表記）
-    for candidate_raw, _ in normalized_candidates:
-        candidate_unicode = normalize_unicode(candidate_raw)
+        start = normalized_address.find(name)
 
-        for town_raw, _ in normalized_towns:
-            if candidate_unicode == normalize_unicode(town_raw):
-                return "ExactMatch", candidate_raw, town_raw
+        while start >= 0:
+            end = start + len(name)
 
-    # 2. 正規化一致
-    for candidate_raw, candidate_norm in normalized_candidates:
-        for town_raw, town_norm in normalized_towns:
-            if candidate_norm == town_norm:
-                return "NormalizedMatch", candidate_raw, town_raw
-
-    # 3. 親町名一致
-    for candidate_raw, candidate_norm in normalized_candidates:
-        candidate_parent = get_parent_name(candidate_norm)
-
-        for town_raw, town_norm in normalized_towns:
-            town_parent = get_parent_name(town_norm)
-
-            # 「鑓水」↔「鑓水2丁目」等を許容。
-            if (
-                candidate_norm == town_parent
-                or candidate_parent == town_norm
-                or (
-                    candidate_parent == town_parent
-                    and candidate_parent != ""
+            overlaps = any(
+                not (
+                    end <= accepted_start
+                    or start >= accepted_end
                 )
-            ):
-                return "ParentNameMatch", candidate_raw, town_raw
+                for accepted_start, accepted_end, _ in accepted
+            )
 
-    # 4. 別名対応表
-    town_norm_set = {
-        normalized
-        for _, normalized in normalized_towns
-    }
+            if not overlaps:
+                accepted.append(
+                    (start, end, entry)
+                )
+                break
 
-    for candidate_raw, candidate_norm in normalized_candidates:
-        current_names = alias_map.get(
-            (lgc, candidate_norm),
-            set(),
+            start = normalized_address.find(
+                name,
+                start + 1,
+            )
+
+    accepted.sort(key=lambda item: item[0])
+
+    return [
+        entry
+        for _, _, entry in accepted
+    ]
+
+
+class AddressResolver:
+    """
+    Address解析結果をキャッシュする。
+
+    同一のLGC・Addressが繰り返される場合の再計算を避ける。
+    """
+
+    def __init__(
+        self,
+        municipality_names: dict[str, str],
+        town_index: dict[str, tuple[TownEntry, ...]],
+    ) -> None:
+        self.municipality_names = municipality_names
+        self.town_index = town_index
+        self._cache: dict[
+            tuple[str, str],
+            tuple[str, str, tuple[str, ...], tuple[TownEntry, ...]],
+        ] = {}
+
+    def resolve(
+        self,
+        address: str,
+        lgc: str,
+    ) -> tuple[
+        str,
+        str,
+        tuple[str, ...],
+        tuple[TownEntry, ...],
+    ]:
+        key = (lgc, address)
+
+        cached = self._cache.get(key)
+
+        if cached is not None:
+            return cached
+
+        body = strip_municipality_name(
+            address,
+            lgc,
+            self.municipality_names,
         )
 
-        matched = current_names & town_norm_set
+        normalized_body = normalize_name(body)
+        split_candidates = tuple(
+            split_address_candidates(body)
+        )
 
-        if matched:
-            matched_name = next(iter(matched))
+        dictionary_matches: tuple[TownEntry, ...] = ()
 
-            for town_raw, town_norm in normalized_towns:
-                if town_norm == matched_name:
-                    return "AliasMatch", candidate_raw, town_raw
+        # 全町名検索はフォールバック用なので、ここではまだ実施しない。
+        result = (
+            body,
+            normalized_body,
+            split_candidates,
+            dictionary_matches,
+        )
+        self._cache[key] = result
 
-    return "TownMismatch", "", ""
+        return result
+
+    def dictionary_matches(
+        self,
+        address: str,
+        lgc: str,
+        normalized_body: str,
+    ) -> tuple[TownEntry, ...]:
+        key = (lgc, address)
+        cached = self._cache.get(key)
+
+        if cached is not None and cached[3]:
+            return cached[3]
+
+        entries = self.town_index.get(lgc, ())
+
+        matches = tuple(
+            longest_non_overlapping_matches(
+                normalized_body,
+                entries,
+            )
+        )
+
+        if cached is None:
+            body = strip_municipality_name(
+                address,
+                lgc,
+                self.municipality_names,
+            )
+            split_candidates = tuple(
+                split_address_candidates(body)
+            )
+        else:
+            body, _, split_candidates, _ = cached
+
+        self._cache[key] = (
+            body,
+            normalized_body,
+            split_candidates,
+            matches,
+        )
+
+        return matches
 
 
 # ============================================================
-# 事前検査
+# 空間結合
 # ============================================================
 
 def validate_lgc_overlap(
     records: pd.DataFrame,
     boundaries: gpd.GeoDataFrame,
 ) -> None:
-    """CSVと境界データのLGC共通率を確認する。"""
     record_lgcs = {
         normalize_lgc_value(value)
         for value in records[LGC_COLUMN]
@@ -815,7 +923,9 @@ def validate_lgc_overlap(
     }
 
     boundary_lgcs = set(
-        boundaries["_LGC"].dropna().astype(str)
+        boundaries["_LGC"]
+        .dropna()
+        .astype(str)
     )
 
     overlap = record_lgcs & boundary_lgcs
@@ -835,29 +945,19 @@ def validate_lgc_overlap(
     )
 
     if ratio < MIN_LGC_OVERLAP_RATIO:
-        sample_csv = ", ".join(sorted(record_lgcs)[:10])
-        sample_boundary = ", ".join(sorted(boundary_lgcs)[:10])
-
         raise ValueError(
-            "CSVと境界データのLGC共通率が低すぎます。\n"
-            "境界側のLGC生成列を確認してください。\n"
-            f"CSV例: {sample_csv}\n"
-            f"境界例: {sample_boundary}"
+            "CSVと境界データのLGC共通率が低すぎます。"
         )
 
-
-# ============================================================
-# 空間結合
-# ============================================================
 
 def create_point_geodataframe(
     records: pd.DataFrame,
 ) -> tuple[gpd.GeoDataFrame, pd.Series]:
-    """有効座標からポイントGeoDataFrameを作る。"""
     latitude = pd.to_numeric(
         records[LAT_COLUMN],
         errors="coerce",
     )
+
     longitude = pd.to_numeric(
         records[LON_COLUMN],
         errors="coerce",
@@ -872,12 +972,9 @@ def create_point_geodataframe(
 
     valid_records = records.loc[valid_mask].copy()
     valid_records["_SOURCE_INDEX"] = valid_records.index
-    valid_records["_LGC_NORMALIZED"] = (
-        valid_records[LGC_COLUMN].map(normalize_lgc_value)
-    )
 
     points = gpd.GeoDataFrame(
-        valid_records,
+        valid_records[["_SOURCE_INDEX"]].copy(),
         geometry=gpd.points_from_xy(
             longitude.loc[valid_mask],
             latitude.loc[valid_mask],
@@ -892,9 +989,8 @@ def spatial_join_points(
     points: gpd.GeoDataFrame,
     boundaries: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
-    """
-    ポイントと町丁・字等境界を空間結合する。
-    """
+    started = perf_counter()
+
     boundary_view = boundaries[
         [
             "_LGC",
@@ -911,10 +1007,6 @@ def spatial_join_points(
         predicate=SPATIAL_JOIN_PREDICATE,
     )
 
-    matched_count = int(
-        joined["index_right"].notna().sum()
-    )
-
     matched_source_count = int(
         joined.loc[
             joined["index_right"].notna(),
@@ -923,34 +1015,18 @@ def spatial_join_points(
     )
 
     print(
-        "空間結合結果: "
-        f"有効ポイント={len(points):,}件、"
-        f"結合行={matched_count:,}件、"
-        f"境界特定ポイント={matched_source_count:,}件"
+        "空間結合: "
+        f"{matched_source_count:,}／{len(points):,}ポイントを特定、"
+        f"{perf_counter() - started:.2f}秒"
     )
 
     if matched_source_count == 0:
-        print(
-            "警告: ポイントと町丁目ポリゴンが"
-            "1件も空間結合されませんでした。"
-        )
-
-        print(
-            f"ポイントCRS: {points.crs}"
-        )
-
-        print(
-            f"境界CRS: {boundaries.crs}"
-        )
-
-        print(
-            "ポイント範囲: "
-            f"{points.total_bounds.tolist()}"
-        )
-
-        print(
-            "境界範囲: "
-            f"{boundaries.total_bounds.tolist()}"
+        raise ValueError(
+            "ポイントと町丁字境界が1件も結合されませんでした。\n"
+            f"ポイントCRS: {points.crs}\n"
+            f"境界CRS: {boundaries.crs}\n"
+            f"ポイント範囲: {points.total_bounds.tolist()}\n"
+            f"境界範囲: {boundaries.total_bounds.tolist()}"
         )
 
     return pd.DataFrame(
@@ -960,67 +1036,418 @@ def spatial_join_points(
 
 def build_spatial_matches(
     joined: pd.DataFrame,
-) -> dict[int, list[dict[str, str]]]:
+) -> dict[int, tuple[tuple[str, str], ...]]:
     """
-    元CSV行indexごとに空間結合候補をまとめる。
+    source indexごとに (LGC, Town) の一意な組を保持する。
 
-    先頭がアンダースコアの列名は、pandas.DataFrame.itertuples()
-    では属性名が変更されるため、iterrows()と列名アクセスを使う。
+    アンダースコア列を安全に扱うため、列名アクセスを使用する。
     """
-    result: dict[int, list[dict[str, str]]] = {}
+    started = perf_counter()
+    result: dict[int, tuple[tuple[str, str], ...]] = {}
 
-    for source_index, group in joined.groupby(
+    matched = joined.loc[
+        joined["index_right"].notna(),
+        [
+            "_SOURCE_INDEX",
+            "_LGC",
+            "_TOWN_RAW",
+        ],
+    ].copy()
+
+    matched["_LGC"] = (
+        matched["_LGC"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    matched["_TOWN_RAW"] = (
+        matched["_TOWN_RAW"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    matched = matched.loc[
+        matched["_LGC"].ne("")
+        & matched["_TOWN_RAW"].ne("")
+    ].drop_duplicates()
+
+    for source_index, group in matched.groupby(
         "_SOURCE_INDEX",
-        dropna=False,
+        sort=False,
     ):
-        matches: list[dict[str, str]] = []
-
-        for _, row in group.iterrows():
-            boundary_lgc_value = row.get("_LGC", "")
-            town_raw_value = row.get("_TOWN_RAW", "")
-
-            boundary_lgc = (
-                ""
-                if pd.isna(boundary_lgc_value)
-                else str(boundary_lgc_value).strip()
+        result[int(source_index)] = tuple(
+            zip(
+                group["_LGC"].tolist(),
+                group["_TOWN_RAW"].tolist(),
             )
+        )
 
-            town_raw = (
-                ""
-                if pd.isna(town_raw_value)
-                else str(town_raw_value).strip()
-            )
-
-            if not boundary_lgc or not town_raw:
-                continue
-
-            entry = {
-                "LGC": boundary_lgc,
-                "Town": town_raw,
-            }
-
-            if entry not in matches:
-                matches.append(entry)
-
-        result[int(source_index)] = matches
+    print(
+        "空間結合結果整理: "
+        f"{len(result):,}件、"
+        f"{perf_counter() - started:.2f}秒"
+    )
 
     return result
 
 
 # ============================================================
-# 判定本体
+# 判定
 # ============================================================
+
+def direct_town_match(
+    split_candidates: tuple[str, ...],
+    normalized_body: str,
+    point_towns: tuple[str, ...],
+) -> tuple[str, str, str]:
+    """
+    座標地点の町名だけを直接照合する高速経路。
+    """
+    normalized_candidates = tuple(
+        (
+            candidate,
+            normalize_name(candidate),
+        )
+        for candidate in split_candidates
+        if normalize_name(candidate)
+    )
+
+    normalized_point_towns = tuple(
+        (
+            town,
+            normalize_name(town),
+        )
+        for town in point_towns
+        if normalize_name(town)
+    )
+
+    # 1. 分割候補との原表記一致
+    for candidate_raw, _ in normalized_candidates:
+        candidate_unicode = normalize_unicode(candidate_raw)
+
+        for town_raw, _ in normalized_point_towns:
+            if candidate_unicode == normalize_unicode(town_raw):
+                return "ExactMatch", candidate_raw, town_raw
+
+    # 2. 分割候補との正規化一致
+    for candidate_raw, candidate_norm in normalized_candidates:
+        for town_raw, town_norm in normalized_point_towns:
+            if candidate_norm == town_norm:
+                return "NormalizedMatch", candidate_raw, town_raw
+
+    # 3. Address全体に座標地点の町名が含まれる
+    for town_raw, town_norm in normalized_point_towns:
+        if town_norm and town_norm in normalized_body:
+            return "PartialMatch", town_raw, town_raw
+
+    # 4. 親町名一致
+    candidate_norms = [
+        (raw, normalized)
+        for raw, normalized in normalized_candidates
+    ]
+
+    for candidate_raw, candidate_norm in candidate_norms:
+        candidate_parent = get_parent_name(candidate_norm)
+
+        for town_raw, town_norm in normalized_point_towns:
+            town_parent = get_parent_name(town_norm)
+
+            if (
+                candidate_norm == town_parent
+                or candidate_parent == town_norm
+                or (
+                    candidate_parent
+                    and candidate_parent == town_parent
+                )
+            ):
+                return "ParentNameMatch", candidate_raw, town_raw
+
+    # 分割に失敗していても、Address全体に親町名が含まれれば許容。
+    for town_raw, town_norm in normalized_point_towns:
+        town_parent = get_parent_name(town_norm)
+
+        if (
+            town_parent
+            and len(town_parent) >= MIN_PARTIAL_NAME_LENGTH
+            and town_parent in normalized_body
+        ):
+            return "ParentNameMatch", town_parent, town_raw
+
+    return "", "", ""
+
+
+def alias_match(
+    lgc: str,
+    split_candidates: tuple[str, ...],
+    normalized_body: str,
+    point_towns: tuple[str, ...],
+    alias_map: dict[tuple[str, str], set[str]],
+) -> tuple[str, str, str]:
+    if not alias_map:
+        return "", "", ""
+
+    point_lookup = {
+        normalize_name(town): town
+        for town in point_towns
+        if normalize_name(town)
+    }
+
+    candidate_pairs = [
+        (candidate, normalize_name(candidate))
+        for candidate in split_candidates
+        if normalize_name(candidate)
+    ]
+
+    for candidate_raw, candidate_norm in candidate_pairs:
+        current_names = alias_map.get(
+            (lgc, candidate_norm),
+            set(),
+        )
+
+        for current_name in current_names:
+            if current_name in point_lookup:
+                return (
+                    "AliasMatch",
+                    candidate_raw,
+                    point_lookup[current_name],
+                )
+
+    # 分割候補にない旧地名も、Address本文内にあれば確認する。
+    for (alias_lgc, old_name), current_names in alias_map.items():
+        if alias_lgc != lgc:
+            continue
+
+        if old_name not in normalized_body:
+            continue
+
+        for current_name in current_names:
+            if current_name in point_lookup:
+                return (
+                    "AliasMatch",
+                    old_name,
+                    point_lookup[current_name],
+                )
+
+    return "", "", ""
+
+
+def fallback_dictionary_match(
+    dictionary_matches: tuple[TownEntry, ...],
+    point_towns: tuple[str, ...],
+) -> tuple[str, str, str]:
+    """
+    LGC別町丁字辞書による部分一致候補を、
+    座標地点の町丁字名で最終確認する。
+    """
+    point_lookup = {
+        normalize_name(town): town
+        for town in point_towns
+        if normalize_name(town)
+    }
+
+    point_parent_lookup: dict[str, str] = {}
+
+    for town_norm, town_raw in point_lookup.items():
+        parent = get_parent_name(town_norm)
+
+        if parent:
+            point_parent_lookup[parent] = town_raw
+
+    for entry in dictionary_matches:
+        if entry.normalized in point_lookup:
+            return (
+                "PartialMatch",
+                entry.raw,
+                point_lookup[entry.normalized],
+            )
+
+    for entry in dictionary_matches:
+        if (
+            entry.parent
+            and entry.parent in point_parent_lookup
+        ):
+            return (
+                "ParentNameMatch",
+                entry.raw,
+                point_parent_lookup[entry.parent],
+            )
+
+    return "", "", ""
+
+
+def determine_lgc_check(
+    valid_coordinate: bool,
+    spatial_matches: tuple[tuple[str, str], ...],
+    csv_lgc: str,
+) -> str:
+    if not valid_coordinate:
+        return "InvalidCoordinate"
+
+    if not spatial_matches:
+        return "Unresolved"
+
+    point_lgcs = {
+        lgc
+        for lgc, _ in spatial_matches
+    }
+
+    return (
+        "Match"
+        if csv_lgc in point_lgcs
+        else "Mismatch"
+    )
+
+
+def determine_town_check(
+    valid_coordinate: bool,
+    spatial_matches: tuple[tuple[str, str], ...],
+    csv_lgc: str,
+    address: str,
+    resolver: AddressResolver,
+    alias_map: dict[tuple[str, str], set[str]],
+) -> tuple[str, str, str, tuple[str, ...], tuple[TownEntry, ...]]:
+    if not valid_coordinate:
+        return "NotEvaluated", "", "", (), ()
+
+    if not spatial_matches:
+        return "NotEvaluated", "", "", (), ()
+
+    (
+        _body,
+        normalized_body,
+        split_candidates,
+        _,
+    ) = resolver.resolve(address, csv_lgc)
+
+    if not normalized_body:
+        return "Unresolved", "", "", (), ()
+
+    # TownCheckはLGCCheckから独立させるため、
+    # 座標地点に該当する全町名を比較対象とする。
+    point_towns = tuple(dict.fromkeys(
+        town
+        for _, town in spatial_matches
+    ))
+
+    (
+        match_result,
+        matched_address,
+        matched_town,
+    ) = direct_town_match(
+        split_candidates,
+        normalized_body,
+        point_towns,
+    )
+
+    if match_result:
+        return (
+            match_result,
+            matched_address,
+            matched_town,
+            split_candidates,
+            (),
+        )
+
+    (
+        match_result,
+        matched_address,
+        matched_town,
+    ) = alias_match(
+        csv_lgc,
+        split_candidates,
+        normalized_body,
+        point_towns,
+        alias_map,
+    )
+
+    if match_result:
+        return (
+            match_result,
+            matched_address,
+            matched_town,
+            split_candidates,
+            (),
+        )
+
+    # 高負荷のLGC別全町名検索は未解決行にだけ実行する。
+    dictionary_matches = resolver.dictionary_matches(
+        address,
+        csv_lgc,
+        normalized_body,
+    )
+
+    (
+        match_result,
+        matched_address,
+        matched_town,
+    ) = fallback_dictionary_match(
+        dictionary_matches,
+        point_towns,
+    )
+
+    if match_result:
+        return (
+            match_result,
+            matched_address,
+            matched_town,
+            split_candidates,
+            dictionary_matches,
+        )
+
+    return (
+        "Mismatch",
+        "",
+        "",
+        split_candidates,
+        dictionary_matches,
+    )
+
+
+def determine_overall_check(
+    lgc_check: str,
+    town_check: str,
+) -> str:
+    if (
+        lgc_check == "InvalidCoordinate"
+        or town_check == "InvalidCoordinate"
+    ):
+        return "InvalidCoordinate"
+
+    if (
+        lgc_check == "Unresolved"
+        or town_check in {"Unresolved", "NotEvaluated"}
+    ):
+        return "Unresolved"
+
+    lgc_ok = lgc_check == "Match"
+    town_ok = town_check in NORMAL_TOWN_RESULTS
+
+    if lgc_ok and town_ok:
+        return "OK"
+
+    if not lgc_ok and town_ok:
+        return "LGCMismatch"
+
+    if lgc_ok and not town_ok:
+        return "TownMismatch"
+
+    return "LGCAndTownMismatch"
+
 
 def check_records(
     records: pd.DataFrame,
     valid_coordinate_mask: pd.Series,
-    spatial_matches: dict[int, list[dict[str, str]]],
-    municipality_names: dict[str, str],
+    spatial_matches: dict[int, tuple[tuple[str, str], ...]],
+    resolver: AddressResolver,
     alias_map: dict[tuple[str, str], set[str]],
 ) -> pd.DataFrame:
-    """問題があるレコードだけを返す。"""
+    started = perf_counter()
     problem_rows: list[dict[str, object]] = []
     total = len(records)
+
+    fallback_search_count = 0
 
     for sequence, (source_index, row) in enumerate(
         records.iterrows(),
@@ -1028,88 +1455,105 @@ def check_records(
     ):
         if (
             sequence == 1
-            or sequence % 500 == 0
+            or sequence % 1000 == 0
             or sequence == total
         ):
-            print(f"位置確認中: {sequence:,}／{total:,}")
+            print(
+                f"位置確認中: {sequence:,}／{total:,}"
+            )
 
-        lgc = normalize_lgc_value(row.get(LGC_COLUMN, ""))
-        address = str(row.get(ADDRESS_COLUMN, "") or "").strip()
-        address_candidates = extract_address_candidates(
-            address,
-            lgc,
-            municipality_names,
+        valid_coordinate = bool(
+            valid_coordinate_mask.loc[source_index]
         )
 
-        result = ""
-        matched_candidate = ""
-        matched_town = ""
+        csv_lgc = normalize_lgc_value(
+            row.get(LGC_COLUMN, "")
+        )
 
-        all_matches = spatial_matches.get(int(source_index), [])
-        point_lgcs = sorted({
-            item["LGC"]
-            for item in all_matches
-        })
-        point_towns_all = sorted({
-            item["Town"]
-            for item in all_matches
-        })
+        address = str(
+            row.get(ADDRESS_COLUMN, "") or ""
+        ).strip()
 
-        if not bool(valid_coordinate_mask.loc[source_index]):
-            result = "InvalidCoordinate"
+        matches = spatial_matches.get(
+            int(source_index),
+            (),
+        )
 
-        elif not all_matches:
-            result = "SpatialUnresolved"
+        lgc_check = determine_lgc_check(
+            valid_coordinate,
+            matches,
+            csv_lgc,
+        )
 
-        else:
-            same_lgc_matches = [
-                item
-                for item in all_matches
-                if item["LGC"] == lgc
-            ]
+        (
+            town_check,
+            matched_address,
+            matched_town,
+            split_candidates,
+            dictionary_matches,
+        ) = determine_town_check(
+            valid_coordinate,
+            matches,
+            csv_lgc,
+            address,
+            resolver,
+            alias_map,
+        )
 
-            if not same_lgc_matches:
-                result = "MunicipalityMismatch"
+        if dictionary_matches:
+            fallback_search_count += 1
 
-            elif not address_candidates:
-                result = "AddressUnresolved"
+        overall_check = determine_overall_check(
+            lgc_check,
+            town_check,
+        )
 
-            else:
-                same_lgc_towns = sorted({
-                    item["Town"]
-                    for item in same_lgc_matches
-                })
-
-                (
-                    result,
-                    matched_candidate,
-                    matched_town,
-                ) = classify_name_match(
-                    lgc,
-                    address_candidates,
-                    same_lgc_towns,
-                    alias_map,
-                )
-
-        if result in NORMAL_MATCH_RESULTS:
+        if overall_check == "OK":
             continue
 
+        point_lgcs = tuple(dict.fromkeys(
+            lgc
+            for lgc, _ in matches
+        ))
+
+        point_towns = tuple(dict.fromkeys(
+            town
+            for _, town in matches
+        ))
+
         output_row = row.to_dict()
+
         output_row.update({
-            "CheckResult": result,
-            "AddressCandidates": "｜".join(address_candidates),
+            "LGCCheck": lgc_check,
+            "TownCheck": town_check,
+            "OverallCheck": overall_check,
+            "AddressCandidates": "｜".join(split_candidates),
+            "DictionaryCandidates": "｜".join(
+                entry.raw
+                for entry in dictionary_matches
+            ),
             "PointBoundaryLGC": "｜".join(point_lgcs),
-            "PointBoundaryTown": "｜".join(point_towns_all),
-            "MatchedAddressCandidate": matched_candidate,
+            "PointBoundaryTown": "｜".join(point_towns),
+            "MatchedAddressCandidate": matched_address,
             "MatchedBoundaryTown": matched_town,
-            "NormalizedLGC": lgc,
+            "NormalizedLGC": csv_lgc,
             "SourceRowNumber": int(source_index) + 2,
         })
+
         problem_rows.append(output_row)
 
+    print(
+        "判定処理: "
+        f"{perf_counter() - started:.2f}秒、"
+        f"町名一覧フォールバック={fallback_search_count:,}件"
+    )
+
     output_columns = list(records.columns) + [
-        "CheckResult",
+        "LGCCheck",
+        "TownCheck",
+        "OverallCheck",
         "AddressCandidates",
+        "DictionaryCandidates",
         "PointBoundaryLGC",
         "PointBoundaryTown",
         "MatchedAddressCandidate",
@@ -1129,6 +1573,8 @@ def check_records(
 # ============================================================
 
 def main() -> None:
+    total_started = perf_counter()
+
     if not INPUT_CSV.exists():
         raise FileNotFoundError(
             f"入力CSVが見つかりません: {INPUT_CSV}"
@@ -1143,7 +1589,12 @@ def main() -> None:
 
     validate_required_columns(
         records,
-        [ADDRESS_COLUMN, LGC_COLUMN, LAT_COLUMN, LON_COLUMN],
+        [
+            ADDRESS_COLUMN,
+            LGC_COLUMN,
+            LAT_COLUMN,
+            LON_COLUMN,
+        ],
         INPUT_CSV.name,
     )
 
@@ -1154,31 +1605,49 @@ def main() -> None:
     ) = read_town_boundaries()
 
     print(f"入力CSV: {INPUT_CSV}")
-    print(f"町丁・字等境界: {TOWN_BOUNDARY_GPKG}")
+    print(f"町丁字境界: {TOWN_BOUNDARY_GPKG}")
     print(f"レイヤ: {TOWN_BOUNDARY_LAYER}")
     print(f"境界地物数: {len(boundaries):,}")
     print(f"境界町名列: {town_column}")
     print(f"境界LGC生成: {lgc_source}")
 
-    validate_lgc_overlap(records, boundaries)
+    validate_lgc_overlap(
+        records,
+        boundaries,
+    )
 
     municipality_names = read_lgc_master()
     alias_map = read_alias_table()
 
-    points, valid_coordinate_mask = create_point_geodataframe(
-        records
+    town_index = build_town_index(
+        boundaries
     )
 
-    print(f"有効座標件数: {len(points):,}／{len(records):,}")
+    resolver = AddressResolver(
+        municipality_names,
+        town_index,
+    )
 
-    joined = spatial_join_points(points, boundaries)
-    spatial_matches = build_spatial_matches(joined)
+    points, valid_coordinate_mask = (
+        create_point_geodataframe(records)
+    )
+
+    print(
+        f"有効座標: {len(points):,}／{len(records):,}"
+    )
+
+    joined = spatial_join_points(
+        points,
+        boundaries,
+    )
+
+    matches = build_spatial_matches(joined)
 
     check_result = check_records(
         records,
         valid_coordinate_mask,
-        spatial_matches,
-        municipality_names,
+        matches,
+        resolver,
         alias_map,
     )
 
@@ -1192,19 +1661,43 @@ def main() -> None:
     print()
     print("位置確認が完了しました。")
     print(f"入力件数: {len(records):,}件")
-    print(f"確認対象として出力: {len(check_result):,}件")
+    print(f"問題出力: {len(check_result):,}件")
     print(f"出力先: {OUTPUT_CSV}")
+    print(
+        f"総処理時間: "
+        f"{perf_counter() - total_started:.2f}秒"
+    )
 
     if not check_result.empty:
         print()
-        print("確認結果内訳")
+        print("OverallCheck内訳")
 
-        summary = check_result["CheckResult"].value_counts(
-            dropna=False
-        )
+        for name, count in (
+            check_result["OverallCheck"]
+            .value_counts(dropna=False)
+            .items()
+        ):
+            print(f"  {name}: {count:,}件")
 
-        for result_name, count in summary.items():
-            print(f"  {result_name}: {count:,}件")
+        print()
+        print("LGCCheck内訳")
+
+        for name, count in (
+            check_result["LGCCheck"]
+            .value_counts(dropna=False)
+            .items()
+        ):
+            print(f"  {name}: {count:,}件")
+
+        print()
+        print("TownCheck内訳")
+
+        for name, count in (
+            check_result["TownCheck"]
+            .value_counts(dropna=False)
+            .items()
+        ):
+            print(f"  {name}: {count:,}件")
 
 
 if __name__ == "__main__":
