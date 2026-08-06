@@ -275,6 +275,17 @@
         width: min(280px, calc(100vw - 30px));
         max-height: 55vh;
       }
+
+      .leaflet-control-scale {
+        display: block !important;
+        visibility: visible !important;
+      }
+
+      .leaflet-control-scale-line {
+        box-sizing: border-box;
+        background: rgba(255, 255, 255, 0.85);
+        color: #222;
+      }
     }
   </style>
 </head>
@@ -462,9 +473,18 @@
       maxZoom: 22
     });
 
-    L.control.scale({
-      imperial: false
-    }).addTo(map);
+    /*
+     * 縮尺バー
+     */
+    const scaleControl = L.control.scale({
+      position: "bottomleft",
+      metric: true,
+      imperial: false,
+      maxWidth: 150,
+      updateWhenIdle: false
+    });
+
+    scaleControl.addTo(map);
 
     /*
      * ポリゴンを背景地図より上、
