@@ -58,8 +58,8 @@
     .zoom-level {
       padding: 6px 10px;
       border-radius: 4px;
-      background: rgba(255,255,255,0.94);
-      box-shadow: 0 1px 5px rgba(0,0,0,0.35);
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
       font-size: 13px;
       font-weight: 600;
     }
@@ -189,6 +189,20 @@
       color: #b00020 !important;
     }
 
+    /*
+     * 縮尺バー
+     */
+    .leaflet-control-scale {
+      display: block !important;
+      visibility: visible !important;
+    }
+
+    .leaflet-control-scale-line {
+      box-sizing: border-box;
+      background: rgba(255, 255, 255, 0.85);
+      color: #222;
+    }
+
 
     /*
      * 背景地図・表示レイヤ用ハンバーガーメニュー
@@ -276,16 +290,6 @@
         max-height: 55vh;
       }
 
-      .leaflet-control-scale {
-        display: block !important;
-        visibility: visible !important;
-      }
-
-      .leaflet-control-scale-line {
-        box-sizing: border-box;
-        background: rgba(255, 255, 255, 0.85);
-        color: #222;
-      }
     }
   </style>
 </head>
@@ -511,10 +515,7 @@
      * 背景地図はラジオボタン、遺跡範囲などの表示レイヤは
      * チェックボックスとして追加する。
      */
-    function createMapLayerMenu(
-      map,
-      baseLayers
-    ) {
+    function createMapLayerMenu(map, baseLayers) {
       const overlayEntries = new Map();
       let panel = null;
       let overlayContainer = null;
@@ -782,20 +783,17 @@
      * ズームレベル表示
      */
     const zoomLevelControl = L.control({
-      position: "topleft" 
+      position: "topleft"
     });
 
     zoomLevelControl.onAdd = function () {
+      const div = L.DomUtil.create(
+        "div",
+        "zoom-level"
+      );
 
-    const div = L.DomUtil.create(
-      "div",
-      "zoom-level"
-    );
-
-    div.id = "zoomLevel";
-
-    div.textContent =
-      `Zoom : ${map.getZoom()}`;
+      div.id = "zoomLevel";
+      div.textContent = `Zoom: ${map.getZoom()}`;
 
       return div;
     };
@@ -803,18 +801,17 @@
     zoomLevelControl.addTo(map);
 
     function updateZoomLevel() {
-
-      const div =
-      document.getElementById("zoomLevel");
+      const div = document.getElementById(
+        "zoomLevel"
+      );
 
       if (!div) {
-      return;
+        return;
+      }
+
+      div.textContent = `Zoom: ${map.getZoom()}`;
     }
 
-    div.textContent =
-    `Zoom : ${map.getZoom()}`;
-  }
-    
     /*
      * 検索・遺跡名表示パネル
      */
