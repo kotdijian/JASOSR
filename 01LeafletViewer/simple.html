@@ -180,13 +180,91 @@
       color: #b00020 !important;
     }
 
+
+    /*
+     * 背景地図・表示レイヤ用ハンバーガーメニュー
+     */
+    .map-layer-menu {
+      position: relative;
+    }
+
+    .map-layer-menu-button {
+      box-sizing: border-box;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border: 2px solid rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+      background: #fff;
+      color: #222;
+      font-size: 22px;
+      line-height: 30px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .map-layer-menu-button:hover,
+    .map-layer-menu-button:focus {
+      background: #f4f4f4;
+    }
+
+    .map-layer-menu-panel {
+      display: none;
+      box-sizing: border-box;
+      position: absolute;
+      top: 0;
+      right: 44px;
+      width: 260px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.97);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+    }
+
+    .map-layer-menu-panel.is-open {
+      display: block;
+    }
+
+    .map-layer-menu-heading {
+      margin: 0 0 7px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #ccc;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .map-layer-menu-heading:not(:first-child) {
+      margin-top: 12px;
+    }
+
+    .map-layer-menu-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      margin: 6px 0;
+      font-size: 13px;
+      line-height: 1.35;
+      cursor: pointer;
+    }
+
+    .map-layer-menu-item input {
+      flex: 0 0 auto;
+      margin: 2px 0 0;
+      cursor: pointer;
+    }
+
     @media (max-width: 600px) {
       .map-title {
         font-size: 15px;
       }
 
-      .leaflet-control-layers {
-        max-width: 230px;
+      .map-layer-menu-panel {
+        top: 44px;
+        right: 0;
+        width: min(280px, calc(100vw - 30px));
+        max-height: 55vh;
       }
     }
   </style>
@@ -309,6 +387,52 @@
       }
     );
 
+
+    const gsiHillshade = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 18
+      }
+    );
+
+    const gsiLandCondition = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/lcm25k_2012/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 18
+      }
+    );
+
+    const gsiSwale = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/swale/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 18
+      }
+    );
+
+    const gsiOldPhoto1960s = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/ort_old10/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxZoom: 18
+      }
+    );
+
+    const kantoRapidSurvey = L.tileLayer(
+      "https://boiledorange73.sakura.ne.jp/ws/tile/Kanto_Rapid-900913/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://boiledorange73.sakura.ne.jp/" target="_blank" rel="noopener">迅速測図タイル</a>',
+        maxZoom: 18
+      }
+    );
+
     /*
      * 地図作成
      */
@@ -330,23 +454,265 @@
       "地理院 淡色地図": gsiPale,
       "地理院 標準地図": gsiStandard,
       "地理院 全国最新写真": gsiPhoto,
-      "地理院 色別標高図": gsiRelief
+      "地理院 色別標高図": gsiRelief,
+      "地理院 陰影起伏図": gsiHillshade,
+      "地理院 土地条件図": gsiLandCondition,
+      "地理院 明治期の低湿地": gsiSwale,
+      "地理院 空中写真（1961〜1969年）": gsiOldPhoto1960s,
+      "迅速測図": kantoRapidSurvey
     };
 
     /*
-     * レイヤコントロール。
+     * 背景地図・表示レイヤ用ハンバーガーメニュー。
      *
-     * 後から「遺跡範囲」をオーバーレイとして追加するため、
-     * 変数に保持する。
+     * 背景地図はラジオボタン、遺跡範囲などの表示レイヤは
+     * チェックボックスとして追加する。
      */
-    const layerControl = L.control.layers(
-      baseMaps,
-      null,
-      {
-        collapsed: false,
+    function createMapLayerMenu(
+      map,
+      baseLayers
+    ) {
+      const overlayEntries = new Map();
+      let panel = null;
+      let overlayContainer = null;
+      let menuButton = null;
+
+      const control = L.control({
         position: "topright"
+      });
+
+      function closeMenu() {
+        if (panel) {
+          panel.classList.remove("is-open");
+        }
+
+        if (menuButton) {
+          menuButton.setAttribute(
+            "aria-expanded",
+            "false"
+          );
+        }
       }
-    ).addTo(map);
+
+      function createMenuItem(
+        parent,
+        input,
+        labelText
+      ) {
+        const item = L.DomUtil.create(
+          "label",
+          "map-layer-menu-item",
+          parent
+        );
+
+        const text = document.createElement(
+          "span"
+        );
+
+        text.textContent = labelText;
+        item.appendChild(input);
+        item.appendChild(text);
+
+        return item;
+      }
+
+      control.onAdd = function () {
+        const container = L.DomUtil.create(
+          "div",
+          "map-layer-menu"
+        );
+
+        menuButton = L.DomUtil.create(
+          "button",
+          "map-layer-menu-button",
+          container
+        );
+
+        menuButton.type = "button";
+        menuButton.textContent = "☰";
+        menuButton.title =
+          "背景地図・表示レイヤ";
+        menuButton.setAttribute(
+          "aria-label",
+          "背景地図と表示レイヤのメニュー"
+        );
+        menuButton.setAttribute(
+          "aria-expanded",
+          "false"
+        );
+
+        panel = L.DomUtil.create(
+          "div",
+          "map-layer-menu-panel",
+          container
+        );
+
+        const baseHeading = L.DomUtil.create(
+          "div",
+          "map-layer-menu-heading",
+          panel
+        );
+
+        baseHeading.textContent = "背景地図";
+
+        Object.entries(baseLayers).forEach(
+          ([label, layer]) => {
+            const radio = document.createElement(
+              "input"
+            );
+
+            radio.type = "radio";
+            radio.name = "map-base-layer";
+            radio.checked = map.hasLayer(layer);
+
+            createMenuItem(
+              panel,
+              radio,
+              label
+            );
+
+            radio.addEventListener(
+              "change",
+              function () {
+                if (!radio.checked) {
+                  return;
+                }
+
+                Object.values(baseLayers).forEach(
+                  baseLayer => {
+                    if (map.hasLayer(baseLayer)) {
+                      map.removeLayer(baseLayer);
+                    }
+                  }
+                );
+
+                layer.addTo(map);
+              }
+            );
+
+            map.on("baselayerchange", function () {
+              radio.checked = map.hasLayer(layer);
+            });
+          }
+        );
+
+        const overlayHeading = L.DomUtil.create(
+          "div",
+          "map-layer-menu-heading",
+          panel
+        );
+
+        overlayHeading.textContent =
+          "表示レイヤ";
+
+        overlayContainer = L.DomUtil.create(
+          "div",
+          "map-layer-menu-overlays",
+          panel
+        );
+
+        const emptyMessage = L.DomUtil.create(
+          "div",
+          "map-layer-menu-item",
+          overlayContainer
+        );
+
+        emptyMessage.dataset.emptyMessage = "true";
+        emptyMessage.textContent =
+          "読み込み可能なレイヤはありません。";
+
+        menuButton.addEventListener(
+          "click",
+          function () {
+            const isOpen =
+              panel.classList.toggle("is-open");
+
+            menuButton.setAttribute(
+              "aria-expanded",
+              String(isOpen)
+            );
+          }
+        );
+
+        L.DomEvent.disableClickPropagation(
+          container
+        );
+        L.DomEvent.disableScrollPropagation(
+          container
+        );
+
+        return container;
+      };
+
+      control.addTo(map);
+      map.on("click", closeMenu);
+
+      return {
+        addOverlay(layer, label) {
+          if (
+            !overlayContainer ||
+            overlayEntries.has(layer)
+          ) {
+            return;
+          }
+
+          const emptyMessage =
+            overlayContainer.querySelector(
+              '[data-empty-message="true"]'
+            );
+
+          if (emptyMessage) {
+            emptyMessage.remove();
+          }
+
+          const checkbox =
+            document.createElement("input");
+
+          checkbox.type = "checkbox";
+          checkbox.checked = map.hasLayer(layer);
+
+          createMenuItem(
+            overlayContainer,
+            checkbox,
+            label
+          );
+
+          checkbox.addEventListener(
+            "change",
+            function () {
+              if (checkbox.checked) {
+                if (!map.hasLayer(layer)) {
+                  layer.addTo(map);
+                }
+              } else if (map.hasLayer(layer)) {
+                map.removeLayer(layer);
+              }
+            }
+          );
+
+          map.on("layeradd", function (event) {
+            if (event.layer === layer) {
+              checkbox.checked = true;
+            }
+          });
+
+          map.on("layerremove", function (event) {
+            if (event.layer === layer) {
+              checkbox.checked = false;
+            }
+          });
+
+          overlayEntries.set(layer, checkbox);
+        },
+
+        close: closeMenu
+      };
+    }
+
+    const mapLayerMenu = createMapLayerMenu(
+      map,
+      baseMaps
+    );
 
     /*
      * タイトル
@@ -983,12 +1349,12 @@
 
         /*
          * 一つ以上読み込めた場合のみ、
-         * 地図とレイヤコントロールへ追加する。
+         * 地図とハンバーガーメニューへ追加する。
          */
         if (loadedFiles > 0) {
           sitePolygonGroup.addTo(map);
 
-          layerControl.addOverlay(
+          mapLayerMenu.addOverlay(
             sitePolygonGroup,
             "遺跡範囲"
           );
