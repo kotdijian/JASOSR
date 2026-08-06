@@ -55,6 +55,15 @@
       font-weight: 700;
     }
 
+    .zoom-level {
+      padding: 6px 10px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.94);
+      box-shadow: 0 1px 5px rgba(0,0,0,0.35);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    
     .search-panel {
       width: min(320px, calc(100vw - 80px));
       padding: 10px;
@@ -355,7 +364,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -364,7 +374,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -373,7 +384,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -382,7 +394,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 15,
+        maxNativeZoom: 18,
+        maxZoom: 22,
         opacity: 0.9
       }
     );
@@ -393,7 +406,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -402,7 +416,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -411,7 +426,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -420,7 +436,8 @@
       {
         attribution:
           '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -429,7 +446,8 @@
       {
         attribution:
           '<a href="https://boiledorange73.sakura.ne.jp/" target="_blank" rel="noopener">迅速測図タイル</a>',
-        maxZoom: 18
+        maxNativeZoom: 18,
+        maxZoom: 22
       }
     );
 
@@ -441,7 +459,12 @@
       zoom: INITIAL_ZOOM,
       layers: [gsiPale],
       zoomControl: true
+      maxzoom: 22
     });
+
+    L.control.scale({
+      imperial: false
+    }).addTo(map);
 
     /*
      * ポリゴンを背景地図より上、
@@ -735,6 +758,43 @@
 
     titleControl.addTo(map);
 
+    /*
+     * ズームレベル表示
+     */
+    const zoomLevelControl = L.control({
+      position: "topleft" 
+    });
+
+    zoomLevelControl.onAdd = function () {
+
+    const div = L.DomUtil.create(
+      "div",
+      "zoom-level"
+    );
+
+    div.id = "zoomLevel";
+
+    div.textContent =
+      `Zoom : ${map.getZoom()}`;
+
+      return div;
+    };
+
+    zoomLevelControl.addTo(map);
+
+    function updateZoomLevel() {
+
+      const div =
+      document.getElementById("zoomLevel");
+
+      if (!div) {
+      return;
+    }
+
+    div.textContent =
+    `Zoom : ${map.getZoom()}`;
+  }
+    
     /*
      * 検索・遺跡名表示パネル
      */
@@ -1601,6 +1661,9 @@
      * ズーム変更時の処理。
      */
     map.on("zoomend", function () {
+      
+      updateZoomLevel();
+      
       if (
         getLabelMode() === "zoom" &&
         currentRecords.length > 0
