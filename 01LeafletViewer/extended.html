@@ -1,0 +1,2230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>遺跡地図ビューワー（拡張機能版）</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  >
+
+  <!-- Leaflet.markercluster -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  >
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  >
+
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "Hiragino Kaku Gothic ProN",
+        "Yu Gothic",
+        Meiryo,
+        sans-serif;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    .map-title {
+      padding: 8px 12px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .zoom-level {
+      padding: 6px 10px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    
+    .search-panel {
+      width: min(320px, calc(100vw - 80px));
+      padding: 10px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+    }
+
+    .search-panel input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #aaa;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+
+    .label-mode-control {
+      margin-top: 8px;
+    }
+
+    .label-mode-control label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .label-mode-control select {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #aaa;
+      border-radius: 3px;
+      background: #fff;
+      font-size: 13px;
+    }
+
+    .search-panel .status {
+      margin-top: 7px;
+      color: #444;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .search-panel .status + .status {
+      margin-top: 3px;
+    }
+
+    .popup-table,
+    .polygon-popup-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .popup-table th,
+    .popup-table td,
+    .polygon-popup-table th,
+    .polygon-popup-table td {
+      padding: 3px 5px;
+      border-bottom: 1px solid #ddd;
+      vertical-align: top;
+    }
+
+    .popup-table th {
+      width: 6em;
+      color: #444;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .polygon-popup-table th {
+      width: 8em;
+      color: #444;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .site-name,
+    .polygon-name {
+      margin: 0 0 7px;
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    /*
+     * 常時表示する遺跡名ラベル
+     */
+    .site-name-label {
+      padding: 2px 5px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.88);
+      color: #111;
+      box-shadow: none;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    /*
+     * 常時表示ラベルの三角形を非表示
+     */
+    .site-name-label::before {
+      display: none;
+    }
+
+    .polygon-tooltip {
+      padding: 2px 5px;
+      border: 1px solid rgba(0, 0, 0, 0.3);
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #111;
+      box-shadow: none;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .error {
+      color: #b00020 !important;
+    }
+
+    /*
+     * 縮尺バー
+     */
+    .leaflet-control-scale {
+      display: block !important;
+      visibility: visible !important;
+    }
+
+    .leaflet-control-scale-line {
+      box-sizing: border-box;
+      background: rgba(255, 255, 255, 0.85);
+      color: #222;
+    }
+
+
+    /*
+     * 背景地図・表示レイヤ用ハンバーガーメニュー
+     */
+    .map-layer-menu {
+      position: relative;
+    }
+
+    .map-layer-menu-button {
+      box-sizing: border-box;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border: 2px solid rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+      background: #fff;
+      color: #222;
+      font-size: 22px;
+      line-height: 30px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .map-layer-menu-button:hover,
+    .map-layer-menu-button:focus {
+      background: #f4f4f4;
+    }
+
+    .map-layer-menu-panel {
+      display: none;
+      box-sizing: border-box;
+      position: absolute;
+      top: 0;
+      right: 44px;
+      width: 260px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.97);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+    }
+
+    .map-layer-menu-panel.is-open {
+      display: block;
+    }
+
+    .map-layer-menu-heading {
+      margin: 0 0 7px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #ccc;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .map-layer-menu-heading:not(:first-child) {
+      margin-top: 12px;
+    }
+
+    .map-layer-menu-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      margin: 6px 0;
+      font-size: 13px;
+      line-height: 1.35;
+      cursor: pointer;
+    }
+
+    .map-layer-menu-item input {
+      flex: 0 0 auto;
+      margin: 2px 0 0;
+      cursor: pointer;
+    }
+
+    /*
+     * 時代区分フィルター
+     */
+    .chronology-panel {
+      box-sizing: border-box;
+      width: min(320px, calc(100vw - 80px));
+      max-height: 48vh;
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+    }
+
+    .chronology-panel-heading {
+      margin: 0 0 7px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .chronology-list {
+      display: grid;
+      gap: 4px;
+    }
+
+    .chronology-row {
+      display: grid;
+      grid-template-columns: 22px 22px 1fr 34px;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 2px 4px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .chronology-row:hover {
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    .chronology-row.sortable-ghost {
+      opacity: 0.35;
+    }
+
+    .chronology-row.sortable-chosen {
+      border-color: #777;
+      background: #f3f3f3;
+    }
+
+    .chronology-row input[type="checkbox"] {
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .chronology-row input[type="color"] {
+      width: 32px;
+      height: 24px;
+      padding: 0;
+      border: 1px solid #aaa;
+      border-radius: 3px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .chronology-drag-handle {
+      color: #666;
+      cursor: grab;
+      user-select: none;
+      text-align: center;
+      font-size: 17px;
+      line-height: 1;
+    }
+
+    .chronology-drag-handle:active {
+      cursor: grabbing;
+    }
+
+    .chronology-label {
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .chronology-code {
+      color: #666;
+      font-size: 10px;
+    }
+
+    .chronology-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .chronology-actions button {
+      flex: 1;
+      padding: 6px 7px;
+      border: 1px solid #999;
+      border-radius: 3px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .chronology-actions button:hover {
+      background: #f1f1f1;
+    }
+
+    .chronology-note {
+      margin-top: 7px;
+      color: #444;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 600px) {
+      .map-title {
+        font-size: 15px;
+      }
+
+      .map-layer-menu-panel {
+        top: 44px;
+        right: 0;
+        width: min(280px, calc(100vw - 30px));
+        max-height: 55vh;
+      }
+
+      .chronology-panel {
+        width: min(300px, calc(100vw - 65px));
+        max-height: 42vh;
+      }
+
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <!-- Leaflet -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    crossorigin=""
+  ></script>
+
+  <!-- Leaflet.markercluster -->
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- Papa Parse: CSV読み込み -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <!-- SortableJS: 時代区分の表示優先順位 -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+  <script>
+    "use strict";
+
+    /*
+     * CSVファイル。
+     *
+     * index.html:
+     *   01LeafletViewer/index.html
+     *
+     * CSV:
+     *   13Tokyo/13Tokyo_chronology.csv
+     */
+    const CSV_URL =
+      "../13Tokyo/13Tokyo_chronology.csv";
+
+    /*
+     * 遺跡範囲ポリゴンのmanifest。
+     *
+     * manifest.json:
+     *   13Tokyo/sitePolygon/manifest.json
+     *
+     * GeoJSON:
+     *   13Tokyo/sitePolygon/geojson/*.geojson
+     */
+    const SITE_POLYGON_MANIFEST_URL =
+      "../13Tokyo/sitePolygon/manifest.json";
+
+    /*
+     * 初期表示位置。
+     * CSV読込後、全地点を含む範囲へ自動調整する。
+     */
+    const INITIAL_CENTER = [35.68, 139.70];
+    const INITIAL_ZOOM = 10;
+
+    /*
+     * 「ズーム15以上で常時表示」の閾値。
+     */
+    const LABEL_MIN_ZOOM = 15;
+
+    /*
+     * 時代区分フラグ。
+     *
+     * チェックされた列の値が1のレコードだけを表示する。
+     * 複数選択時はOR条件。
+     * 上にある区分ほど表示色の優先順位が高い。
+     */
+    const DEFAULT_MARKER_COLOR = "#000000";
+
+    const CHRONOLOGY_OPTIONS = [
+      { column: "Pa", label: "旧石器", color: "#6b4f3a" },
+      { column: "Jo", label: "縄文", color: "#d95f02" },
+      { column: "Ya", label: "弥生", color: "#e6ab02" },
+      { column: "Ko", label: "古墳", color: "#7570b3" },
+      { column: "As", label: "飛鳥", color: "#8c6bb1" },
+      { column: "An", label: "古代（奈良・平安）", color: "#238b45" },
+      { column: "Na", label: "奈良", color: "#1b9e77" },
+      { column: "He", label: "平安", color: "#66a61e" },
+      { column: "Me", label: "中世", color: "#1f78b4" },
+      { column: "Ka", label: "鎌倉", color: "#377eb8" },
+      { column: "Nb", label: "南北朝", color: "#4daf4a" },
+      { column: "Mu", label: "室町", color: "#984ea3" },
+      { column: "Se", label: "戦国", color: "#ff7f00" },
+      { column: "EM", label: "近世", color: "#e7298a" },
+      { column: "AM", label: "安土桃山", color: "#a65628" },
+      { column: "Ed", label: "江戸", color: "#f781bf" },
+      { column: "Md", label: "近代", color: "#666666" },
+      { column: "Pr", label: "現代", color: "#17becf" },
+      { column: "Un", label: "不明", color: "#999999" }
+    ];
+
+    /*
+     * ポリゴンの標準表示設定。
+     */
+    const SITE_POLYGON_DEFAULT_STYLE = {
+      color: "#c43c35",
+      weight: 2,
+      opacity: 0.9,
+      fillColor: "#e76f51",
+      fillOpacity: 0.22
+    };
+
+    /*
+     * ポリゴンのタイトルとして優先する属性名。
+     *
+     * 該当属性がない場合は、
+     * name、SiteName、manifestのnameの順で使用する。
+     */
+    const SITE_POLYGON_TITLE_FIELDS = [
+      "SiteName_original",
+      "SiteName",
+      "name"
+    ];
+
+    /*
+     * 地理院タイル
+     */
+    const gsiStandard = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    const gsiPale = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    const gsiPhoto = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    const gsiRelief = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22,
+        opacity: 0.9
+      }
+    );
+
+
+    const gsiHillshade = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    const gsiLandCondition = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/lcm25k_2012/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    const gsiSwale = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/swale/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    const gsiOldPhoto1960s = L.tileLayer(
+      "https://cyberjapandata.gsi.go.jp/xyz/ort_old10/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    const kantoRapidSurvey = L.tileLayer(
+      "https://boiledorange73.sakura.ne.jp/ws/tile/Kanto_Rapid-900913/{z}/{x}/{y}.png",
+      {
+        attribution:
+          '<a href="https://boiledorange73.sakura.ne.jp/" target="_blank" rel="noopener">迅速測図タイル</a>',
+        maxNativeZoom: 18,
+        maxZoom: 22
+      }
+    );
+
+    /*
+     * 地図作成
+     */
+    const map = L.map("map", {
+      center: INITIAL_CENTER,
+      zoom: INITIAL_ZOOM,
+      layers: [gsiPale],
+      zoomControl: true,
+      maxZoom: 22
+    });
+
+    /*
+     * 縮尺バー
+     */
+    const scaleControl = L.control.scale({
+      position: "bottomleft",
+      metric: true,
+      imperial: false,
+      maxWidth: 150,
+      updateWhenIdle: false
+    });
+
+    scaleControl.addTo(map);
+
+    /*
+     * ポリゴンを背景地図より上、
+     * ポイントマーカーより下に表示する。
+     */
+    map.createPane("sitePolygonPane");
+    map.getPane("sitePolygonPane").style.zIndex = "350";
+
+    const baseMaps = {
+      "地理院 淡色地図": gsiPale,
+      "地理院 標準地図": gsiStandard,
+      "地理院 全国最新写真": gsiPhoto,
+      "地理院 色別標高図": gsiRelief,
+      "地理院 陰影起伏図": gsiHillshade,
+      "地理院 土地条件図": gsiLandCondition,
+      "地理院 明治期の低湿地": gsiSwale,
+      "地理院 空中写真（1961〜1969年）": gsiOldPhoto1960s,
+      "迅速測図": kantoRapidSurvey
+    };
+
+    /*
+     * 背景地図・表示レイヤ用ハンバーガーメニュー。
+     *
+     * 背景地図はラジオボタン、遺跡範囲などの表示レイヤは
+     * チェックボックスとして追加する。
+     */
+    function createMapLayerMenu(map, baseLayers) {
+      const overlayEntries = new Map();
+      let panel = null;
+      let overlayContainer = null;
+      let menuButton = null;
+
+      const control = L.control({
+        position: "topright"
+      });
+
+      function closeMenu() {
+        if (panel) {
+          panel.classList.remove("is-open");
+        }
+
+        if (menuButton) {
+          menuButton.setAttribute(
+            "aria-expanded",
+            "false"
+          );
+        }
+      }
+
+      function createMenuItem(
+        parent,
+        input,
+        labelText
+      ) {
+        const item = L.DomUtil.create(
+          "label",
+          "map-layer-menu-item",
+          parent
+        );
+
+        const text = document.createElement(
+          "span"
+        );
+
+        text.textContent = labelText;
+        item.appendChild(input);
+        item.appendChild(text);
+
+        return item;
+      }
+
+      control.onAdd = function () {
+        const container = L.DomUtil.create(
+          "div",
+          "map-layer-menu"
+        );
+
+        menuButton = L.DomUtil.create(
+          "button",
+          "map-layer-menu-button",
+          container
+        );
+
+        menuButton.type = "button";
+        menuButton.textContent = "☰";
+        menuButton.title =
+          "背景地図・表示レイヤ";
+        menuButton.setAttribute(
+          "aria-label",
+          "背景地図と表示レイヤのメニュー"
+        );
+        menuButton.setAttribute(
+          "aria-expanded",
+          "false"
+        );
+
+        panel = L.DomUtil.create(
+          "div",
+          "map-layer-menu-panel",
+          container
+        );
+
+        const baseHeading = L.DomUtil.create(
+          "div",
+          "map-layer-menu-heading",
+          panel
+        );
+
+        baseHeading.textContent = "背景地図";
+
+        Object.entries(baseLayers).forEach(
+          ([label, layer]) => {
+            const radio = document.createElement(
+              "input"
+            );
+
+            radio.type = "radio";
+            radio.name = "map-base-layer";
+            radio.checked = map.hasLayer(layer);
+
+            createMenuItem(
+              panel,
+              radio,
+              label
+            );
+
+            radio.addEventListener(
+              "change",
+              function () {
+                if (!radio.checked) {
+                  return;
+                }
+
+                Object.values(baseLayers).forEach(
+                  baseLayer => {
+                    if (map.hasLayer(baseLayer)) {
+                      map.removeLayer(baseLayer);
+                    }
+                  }
+                );
+
+                layer.addTo(map);
+              }
+            );
+
+            map.on("baselayerchange", function () {
+              radio.checked = map.hasLayer(layer);
+            });
+          }
+        );
+
+        const overlayHeading = L.DomUtil.create(
+          "div",
+          "map-layer-menu-heading",
+          panel
+        );
+
+        overlayHeading.textContent =
+          "表示レイヤ";
+
+        overlayContainer = L.DomUtil.create(
+          "div",
+          "map-layer-menu-overlays",
+          panel
+        );
+
+        const emptyMessage = L.DomUtil.create(
+          "div",
+          "map-layer-menu-item",
+          overlayContainer
+        );
+
+        emptyMessage.dataset.emptyMessage = "true";
+        emptyMessage.textContent =
+          "読み込み可能なレイヤはありません。";
+
+        menuButton.addEventListener(
+          "click",
+          function () {
+            const isOpen =
+              panel.classList.toggle("is-open");
+
+            menuButton.setAttribute(
+              "aria-expanded",
+              String(isOpen)
+            );
+          }
+        );
+
+        L.DomEvent.disableClickPropagation(
+          container
+        );
+        L.DomEvent.disableScrollPropagation(
+          container
+        );
+
+        return container;
+      };
+
+      control.addTo(map);
+      map.on("click", closeMenu);
+
+      return {
+        addOverlay(layer, label) {
+          if (
+            !overlayContainer ||
+            overlayEntries.has(layer)
+          ) {
+            return;
+          }
+
+          const emptyMessage =
+            overlayContainer.querySelector(
+              '[data-empty-message="true"]'
+            );
+
+          if (emptyMessage) {
+            emptyMessage.remove();
+          }
+
+          const checkbox =
+            document.createElement("input");
+
+          checkbox.type = "checkbox";
+          checkbox.checked = map.hasLayer(layer);
+
+          createMenuItem(
+            overlayContainer,
+            checkbox,
+            label
+          );
+
+          checkbox.addEventListener(
+            "change",
+            function () {
+              if (checkbox.checked) {
+                if (!map.hasLayer(layer)) {
+                  layer.addTo(map);
+                }
+              } else if (map.hasLayer(layer)) {
+                map.removeLayer(layer);
+              }
+            }
+          );
+
+          map.on("layeradd", function (event) {
+            if (event.layer === layer) {
+              checkbox.checked = true;
+            }
+          });
+
+          map.on("layerremove", function (event) {
+            if (event.layer === layer) {
+              checkbox.checked = false;
+            }
+          });
+
+          overlayEntries.set(layer, checkbox);
+        },
+
+        close: closeMenu
+      };
+    }
+
+    const mapLayerMenu = createMapLayerMenu(
+      map,
+      baseMaps
+    );
+
+    /*
+     * タイトル
+     */
+    const titleControl = L.control({
+      position: "topleft"
+    });
+
+    titleControl.onAdd = function () {
+      const div = L.DomUtil.create(
+        "div",
+        "map-title"
+      );
+
+      div.textContent =
+        "遺跡地図ビューワー（拡張機能版）";
+
+      return div;
+    };
+
+    titleControl.addTo(map);
+
+    /*
+     * ズームレベル表示
+     */
+    const zoomLevelControl = L.control({
+      position: "topleft"
+    });
+
+    zoomLevelControl.onAdd = function () {
+      const div = L.DomUtil.create(
+        "div",
+        "zoom-level"
+      );
+
+      div.id = "zoomLevel";
+      div.textContent = `Zoom: ${map.getZoom()}`;
+
+      return div;
+    };
+
+    zoomLevelControl.addTo(map);
+
+    function updateZoomLevel() {
+      const div = document.getElementById(
+        "zoomLevel"
+      );
+
+      if (!div) {
+        return;
+      }
+
+      div.textContent = `Zoom: ${map.getZoom()}`;
+    }
+
+    /*
+     * 検索・遺跡名表示パネル
+     */
+    const searchControl = L.control({
+      position: "topleft"
+    });
+
+    searchControl.onAdd = function () {
+      const div = L.DomUtil.create(
+        "div",
+        "search-panel"
+      );
+
+      div.innerHTML = `
+        <input
+          id="searchInput"
+          type="search"
+          placeholder="遺跡名・所在地・時代・種別で検索"
+          aria-label="遺跡検索"
+        >
+
+        <div class="label-mode-control">
+          <label for="labelMode">
+            遺跡名表示
+          </label>
+
+          <select id="labelMode">
+            <option value="hover" selected>
+              選択時のみ
+            </option>
+
+            <option value="zoom">
+              ズーム${LABEL_MIN_ZOOM}以上で常時表示
+            </option>
+
+            <option value="always">
+              常時表示
+            </option>
+          </select>
+        </div>
+
+        <div id="status" class="status">
+          CSVを読み込んでいます。
+        </div>
+
+        <div id="polygonStatus" class="status">
+          遺跡範囲を読み込んでいます。
+        </div>
+      `;
+
+      L.DomEvent.disableClickPropagation(div);
+      L.DomEvent.disableScrollPropagation(div);
+
+      return div;
+    };
+
+    searchControl.addTo(map);
+
+    /*
+     * 時代区分フィルターパネル
+     */
+    const chronologyControl = L.control({
+      position: "topleft"
+    });
+
+    chronologyControl.onAdd = function () {
+      const div = L.DomUtil.create(
+        "div",
+        "chronology-panel"
+      );
+
+      const rows = CHRONOLOGY_OPTIONS.map(
+        (item, index) => `
+          <div
+            class="chronology-row"
+            data-column="${item.column}"
+          >
+            <input
+              id="chronology-${index}"
+              class="chronology-checkbox"
+              type="checkbox"
+              value="${item.column}"
+            >
+
+            <span
+              class="chronology-drag-handle"
+              title="ドラッグして表示優先順位を変更"
+              aria-label="${item.label}の表示優先順位を変更"
+            >☰</span>
+
+            <label
+              class="chronology-label"
+              for="chronology-${index}"
+            >
+              ${item.label}
+              <span class="chronology-code">
+                (${item.column})
+              </span>
+            </label>
+
+            <input
+              class="chronology-color"
+              type="color"
+              value="${item.color}"
+              data-column="${item.column}"
+              title="${item.label}の表示色"
+              aria-label="${item.label}の表示色"
+            >
+          </div>
+        `
+      ).join("");
+
+      div.innerHTML = `
+        <div class="chronology-panel-heading">
+          時代区分
+        </div>
+
+        <div
+          id="chronologyList"
+          class="chronology-list"
+        >
+          ${rows}
+        </div>
+
+        <div class="chronology-actions">
+          <button id="selectAllChronology" type="button">
+            すべて選択
+          </button>
+          <button id="clearChronology" type="button">
+            選択解除
+          </button>
+        </div>
+
+        <div class="chronology-note">
+          未選択時は全件を黒で表示します。
+          複数選択はOR条件です。
+          複数の時代フラグを持つ遺跡は、
+          上にある区分の色を優先します。
+          ☰をドラッグして上下順を変更できます。
+        </div>
+      `;
+
+      L.DomEvent.disableClickPropagation(div);
+      L.DomEvent.disableScrollPropagation(div);
+
+      return div;
+    };
+
+    chronologyControl.addTo(map);
+
+    /*
+     * 地点レイヤ
+     */
+    const markerCluster = L.markerClusterGroup({
+      chunkedLoading: true,
+      chunkInterval: 100,
+      chunkDelay: 20,
+      maxClusterRadius: 55,
+      showCoverageOnHover: false,
+      spiderfyOnMaxZoom: true
+    });
+
+    map.addLayer(markerCluster);
+
+    /*
+     * 遺跡範囲ポリゴンをまとめるレイヤ。
+     *
+     * manifestに記載された全GeoJSONを、
+     * シンプル版では一つのレイヤとして扱う。
+     */
+    const sitePolygonGroup = L.featureGroup();
+
+    /*
+     * 全レコードと現在表示中のレコードを保持する。
+     */
+    let allRecords = [];
+    let currentRecords = [];
+    let searchTimer = null;
+
+    /*
+     * HTML特殊文字をエスケープする。
+     */
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function displayValue(value) {
+      const text = String(value ?? "").trim();
+
+      return text === ""
+        ? "－"
+        : escapeHtml(text);
+    }
+
+    /*
+     * ポイントのポップアップを生成する。
+     */
+    function buildPopup(row) {
+      const name = displayValue(
+        row.SiteName_original
+      );
+
+      return `
+        <h2 class="site-name">${name}</h2>
+
+        <table class="popup-table">
+          <tr>
+            <th>ふりがな</th>
+            <td>${displayValue(row.SiteName_furigana)}</td>
+          </tr>
+
+          <tr>
+            <th>所在地</th>
+            <td>${displayValue(row.Address)}</td>
+          </tr>
+
+          <tr>
+            <th>時代</th>
+            <td>${displayValue(row.Chronology)}</td>
+          </tr>
+
+          <tr>
+            <th>遺跡種別</th>
+            <td>${displayValue(row.SiteType)}</td>
+          </tr>
+
+          <tr>
+            <th>遺構</th>
+            <td>${displayValue(row.ArchaeologicalFeatures)}</td>
+          </tr>
+
+          <tr>
+            <th>主な遺物</th>
+            <td>${displayValue(row.MajorArtefacts)}</td>
+          </tr>
+
+          <tr>
+            <th>遺跡番号</th>
+            <td>${displayValue(row.Site_no)}</td>
+          </tr>
+
+          <tr>
+            <th>JASID</th>
+            <td>${displayValue(row.JASID)}</td>
+          </tr>
+
+          <tr>
+            <th>自治体コード</th>
+            <td>${displayValue(row.LGC)}</td>
+          </tr>
+
+          <tr>
+            <th>座標</th>
+            <td>
+              ${displayValue(row.Lat)},
+              ${displayValue(row.Lon)}
+            </td>
+          </tr>
+        </table>
+      `;
+    }
+
+    /*
+     * GeoJSON属性の全項目をポップアップ表にする。
+     */
+    function buildPolygonPropertyTable(properties) {
+      const entries = Object.entries(
+        properties || {}
+      ).filter(([key]) => {
+        /*
+         * アンダースコアで始まる内部属性は表示しない。
+         */
+        return !String(key).startsWith("_");
+      });
+
+      if (entries.length === 0) {
+        return `
+          <div>
+            属性情報はありません。
+          </div>
+        `;
+      }
+
+      const rows = entries
+        .map(([key, value]) => {
+          let displayText;
+
+          if (
+            typeof value === "object" &&
+            value !== null
+          ) {
+            displayText = escapeHtml(
+              JSON.stringify(value)
+            );
+          } else {
+            displayText = displayValue(value);
+          }
+
+          return `
+            <tr>
+              <th>${escapeHtml(key)}</th>
+              <td>${displayText}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      return `
+        <table class="polygon-popup-table">
+          ${rows}
+        </table>
+      `;
+    }
+
+    /*
+     * GeoJSONの属性から遺跡名を取得する。
+     */
+    function getPolygonTitle(
+      properties,
+      manifestLayerName
+    ) {
+      for (
+        const field of SITE_POLYGON_TITLE_FIELDS
+      ) {
+        const value = properties?.[field];
+
+        if (
+          value !== undefined &&
+          value !== null &&
+          String(value).trim() !== ""
+        ) {
+          return String(value);
+        }
+      }
+
+      if (
+        manifestLayerName &&
+        String(manifestLayerName).trim() !== ""
+      ) {
+        return String(manifestLayerName);
+      }
+
+      return "遺跡範囲";
+    }
+
+    /*
+     * GeoJSONレイヤの表示スタイルを生成する。
+     *
+     * 優先順位：
+     * 1. GeoJSONのproperties
+     * 2. manifest.jsonの設定
+     * 3. 標準設定
+     */
+    function getPolygonStyle(
+      feature,
+      manifestDefinition
+    ) {
+      const properties =
+        feature?.properties || {};
+
+      const numericValue = (
+        value,
+        fallback
+      ) => {
+        const number = Number(value);
+
+        return Number.isFinite(number)
+          ? number
+          : fallback;
+      };
+
+      return {
+        pane: "sitePolygonPane",
+
+        color:
+          properties.polygon_color ||
+          properties.stroke ||
+          manifestDefinition.color ||
+          SITE_POLYGON_DEFAULT_STYLE.color,
+
+        weight: numericValue(
+          properties.polygon_weight ??
+          properties["stroke-width"] ??
+          manifestDefinition.weight,
+          SITE_POLYGON_DEFAULT_STYLE.weight
+        ),
+
+        opacity: numericValue(
+          properties.polygon_opacity ??
+          properties["stroke-opacity"] ??
+          manifestDefinition.opacity,
+          SITE_POLYGON_DEFAULT_STYLE.opacity
+        ),
+
+        fillColor:
+          properties.fill_color ||
+          properties.fill ||
+          manifestDefinition.fillColor ||
+          SITE_POLYGON_DEFAULT_STYLE.fillColor,
+
+        fillOpacity: numericValue(
+          properties.fill_opacity ??
+          properties["fill-opacity"] ??
+          manifestDefinition.fillOpacity,
+          SITE_POLYGON_DEFAULT_STYLE.fillOpacity
+        )
+      };
+    }
+
+    /*
+     * manifest.jsonの内容を標準化する。
+     *
+     * 対応形式：
+     *
+     * {
+     *   "layers": [
+     *     {
+     *       "file": "geojson/site_001.geojson",
+     *       "name": "遺跡範囲001"
+     *     }
+     *   ]
+     * }
+     *
+     * または
+     *
+     * {
+     *   "files": [
+     *     "geojson/site_001.geojson"
+     *   ]
+     * }
+     */
+    function normalizeManifest(manifest) {
+      if (Array.isArray(manifest.layers)) {
+        return manifest.layers
+          .filter(item => item && item.file)
+          .map((item, index) => ({
+            file: item.file,
+
+            name:
+              item.name ||
+              `遺跡範囲${index + 1}`,
+
+            color: item.color,
+            weight: item.weight,
+            opacity: item.opacity,
+            fillColor: item.fillColor,
+            fillOpacity: item.fillOpacity
+          }));
+      }
+
+      if (Array.isArray(manifest.files)) {
+        return manifest.files
+          .filter(Boolean)
+          .map((file, index) => ({
+            file,
+            name: `遺跡範囲${index + 1}`
+          }));
+      }
+
+      throw new Error(
+        "manifest.jsonにlayersまたはfiles配列がありません。"
+      );
+    }
+
+    /*
+     * JSONファイルを取得する。
+     */
+    async function fetchJson(url) {
+      const response = await fetch(url, {
+        cache: "no-cache"
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `${url}を取得できませんでした。` +
+          ` HTTP ${response.status}`
+        );
+      }
+
+      return response.json();
+    }
+
+    /*
+     * 一つのGeoJSONファイルからLeafletレイヤを生成する。
+     */
+    function createSitePolygonLayer(
+      geojson,
+      manifestDefinition
+    ) {
+      let geoJsonLayer = null;
+
+      geoJsonLayer = L.geoJSON(geojson, {
+        pane: "sitePolygonPane",
+
+        style: function (feature) {
+          return getPolygonStyle(
+            feature,
+            manifestDefinition
+          );
+        },
+
+        onEachFeature: function (
+          feature,
+          featureLayer
+        ) {
+          const properties =
+            feature.properties || {};
+
+          const title = getPolygonTitle(
+            properties,
+            manifestDefinition.name
+          );
+
+          featureLayer.bindPopup(
+            `
+              <h2 class="polygon-name">
+                ${escapeHtml(title)}
+              </h2>
+
+              ${buildPolygonPropertyTable(properties)}
+            `,
+            {
+              maxWidth: 430,
+              minWidth: 280
+            }
+          );
+
+          featureLayer.bindTooltip(
+            escapeHtml(title),
+            {
+              sticky: true,
+              direction: "top",
+              className: "polygon-tooltip"
+            }
+          );
+
+          /*
+           * マウスオーバー時に強調表示する。
+           */
+          featureLayer.on(
+            "mouseover",
+            function () {
+              const normalStyle =
+                getPolygonStyle(
+                  feature,
+                  manifestDefinition
+                );
+
+              featureLayer.setStyle({
+                weight:
+                  Number(normalStyle.weight) + 1,
+
+                fillOpacity: Math.min(
+                  Number(normalStyle.fillOpacity) + 0.12,
+                  0.8
+                )
+              });
+
+              /*
+               * SVGレンダリングの場合のみ利用できる。
+               */
+              if (featureLayer.bringToFront) {
+                featureLayer.bringToFront();
+              }
+            }
+          );
+
+          /*
+           * マウスが外れたら元のスタイルへ戻す。
+           */
+          featureLayer.on(
+            "mouseout",
+            function () {
+              geoJsonLayer.resetStyle(
+                featureLayer
+              );
+            }
+          );
+        }
+      });
+
+      return geoJsonLayer;
+    }
+
+    /*
+     * manifest.jsonを読み込み、
+     * 記載された全GeoJSONを表示する。
+     */
+    async function loadSitePolygons() {
+      const polygonStatus =
+        document.getElementById(
+          "polygonStatus"
+        );
+
+      try {
+        const manifest = await fetchJson(
+          SITE_POLYGON_MANIFEST_URL
+        );
+
+        const definitions =
+          normalizeManifest(manifest);
+
+        if (definitions.length === 0) {
+          polygonStatus.textContent =
+            "manifest.jsonにGeoJSONが登録されていません。";
+
+          return;
+        }
+
+        let loadedFiles = 0;
+        let totalFeatures = 0;
+        const loadErrors = [];
+
+        /*
+         * GeoJSONを1ファイルずつ順番に読み込む。
+         *
+         * ファイル数が増えた場合でも、
+         * 同時アクセスが集中しにくい。
+         */
+        for (
+          let index = 0;
+          index < definitions.length;
+          index += 1
+        ) {
+          const definition =
+            definitions[index];
+
+          polygonStatus.textContent =
+            `遺跡範囲を読み込んでいます。` +
+            `${index + 1}／${definitions.length}`;
+
+          /*
+           * manifest.jsonを基準に相対パスを解決する。
+           *
+           * 例：
+           * manifest:
+           *   ../13Tokyo/sitePolygon/manifest.json
+           *
+           * file:
+           *   geojson/site_001.geojson
+           */
+          const geoJsonUrl = new URL(
+            definition.file,
+            new URL(
+              SITE_POLYGON_MANIFEST_URL,
+              window.location.href
+            )
+          ).href;
+
+          try {
+            const geojson =
+              await fetchJson(geoJsonUrl);
+
+            if (
+              !geojson ||
+              (
+                geojson.type !== "FeatureCollection" &&
+                geojson.type !== "Feature"
+              )
+            ) {
+              throw new Error(
+                "GeoJSONの形式がFeatureCollectionまたはFeatureではありません。"
+              );
+            }
+
+            const layer =
+              createSitePolygonLayer(
+                geojson,
+                definition
+              );
+
+            sitePolygonGroup.addLayer(layer);
+
+            loadedFiles += 1;
+
+            if (
+              geojson.type === "FeatureCollection" &&
+              Array.isArray(geojson.features)
+            ) {
+              totalFeatures +=
+                geojson.features.length;
+            } else if (
+              geojson.type === "Feature"
+            ) {
+              totalFeatures += 1;
+            }
+          } catch (error) {
+            console.error(
+              `GeoJSON読込エラー: ${definition.file}`,
+              error
+            );
+
+            loadErrors.push({
+              file: definition.file,
+              error
+            });
+          }
+        }
+
+        /*
+         * 一つ以上読み込めた場合のみ、
+         * 地図とハンバーガーメニューへ追加する。
+         */
+        if (loadedFiles > 0) {
+          sitePolygonGroup.addTo(map);
+
+          mapLayerMenu.addOverlay(
+            sitePolygonGroup,
+            "遺跡範囲"
+          );
+        }
+
+        if (loadedFiles === 0) {
+          polygonStatus.classList.add("error");
+
+          polygonStatus.textContent =
+            "遺跡範囲を読み込めませんでした。";
+
+          return;
+        }
+
+        polygonStatus.textContent =
+          `${loadedFiles.toLocaleString("ja-JP")}ファイル・` +
+          `${totalFeatures.toLocaleString("ja-JP")}件の遺跡範囲を表示`;
+
+        if (loadErrors.length > 0) {
+          polygonStatus.classList.add("error");
+
+          polygonStatus.textContent +=
+            `／読込失敗${loadErrors.length.toLocaleString("ja-JP")}ファイル`;
+        }
+      } catch (error) {
+        console.error(
+          "遺跡範囲manifest読込エラー:",
+          error
+        );
+
+        polygonStatus.classList.add("error");
+
+        polygonStatus.innerHTML =
+          "遺跡範囲を読み込めませんでした。<br>" +
+          "manifest.jsonの配置場所と記述内容を確認してください。";
+      }
+    }
+
+    /*
+     * 全文検索用文字列を生成する。
+     */
+    function searchableText(row) {
+      return [
+        row.SiteName_original,
+        row.SiteName_furigana,
+        row.Address,
+        row.Chronology,
+        row.SiteType,
+        row.ArchaeologicalFeatures,
+        row.MajorArtefacts,
+        row.Site_no,
+        row.JASID,
+        row.LGC
+      ]
+        .map(value =>
+          String(value ?? "").toLowerCase()
+        )
+        .join(" ");
+    }
+
+    /*
+     * 現在選択されている遺跡名表示モードを取得する。
+     *
+     * hover:
+     *   マウスオーバー時のみ表示
+     *
+     * zoom:
+     *   指定ズーム以上で常時表示
+     *
+     * always:
+     *   すべてのズームで常時表示
+     */
+    function getLabelMode() {
+      const selector =
+        document.getElementById("labelMode");
+
+      return selector
+        ? selector.value
+        : "hover";
+    }
+
+    /*
+     * 現在の状態で遺跡名を常時表示するか判定する。
+     */
+    function shouldShowPermanentLabel() {
+      const mode = getLabelMode();
+
+      if (mode === "always") {
+        return true;
+      }
+
+      if (mode === "zoom") {
+        return map.getZoom() >= LABEL_MIN_ZOOM;
+      }
+
+      return false;
+    }
+
+    /*
+     * 選択されている時代区分を、現在の表示順で取得する。
+     */
+    function getSelectedChronologyColumns() {
+      return Array.from(
+        document.querySelectorAll(
+          "#chronologyList .chronology-row"
+        )
+      )
+        .filter(row => {
+          const checkbox = row.querySelector(
+            ".chronology-checkbox"
+          );
+
+          return checkbox && checkbox.checked;
+        })
+        .map(row => row.dataset.column);
+    }
+
+    function getChronologyColor(column) {
+      const input = document.querySelector(
+        `.chronology-color[data-column="${column}"]`
+      );
+
+      return input
+        ? input.value
+        : DEFAULT_MARKER_COLOR;
+    }
+
+    function hasChronologyFlag(row, column) {
+      const value = String(
+        row[column] ?? ""
+      ).trim();
+
+      return value === "1" || value === "1.0";
+    }
+
+    function getPrimaryChronology(
+      row,
+      selectedColumns
+    ) {
+      return selectedColumns.find(
+        column => hasChronologyFlag(row, column)
+      ) || null;
+    }
+
+    /*
+     * キーワード検索と時代区分フィルターを同時適用する。
+     *
+     * キーワード: AND検索
+     * 時代区分: 選択列のいずれかが1なら表示（OR条件）
+     */
+    function getFilteredRecords() {
+      const keyword = document
+        .getElementById("searchInput")
+        .value;
+
+      const words = keyword
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean);
+
+      const selectedColumns =
+        getSelectedChronologyColumns();
+
+      return allRecords
+        .filter(row => {
+          if (words.length === 0) {
+            return true;
+          }
+
+          return words.every(
+            word => row._searchText.includes(word)
+          );
+        })
+        .filter(row => {
+          if (selectedColumns.length === 0) {
+            return true;
+          }
+
+          return selectedColumns.some(
+            column => hasChronologyFlag(row, column)
+          );
+        });
+    }
+
+    /*
+     * マーカーを生成する。
+     */
+    function createMarker(row, markerColor) {
+      const lat = Number(row.Lat);
+      const lon = Number(row.Lon);
+
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon)
+      ) {
+        return null;
+      }
+
+      if (
+        lat < -90 ||
+        lat > 90 ||
+        lon < -180 ||
+        lon > 180
+      ) {
+        return null;
+      }
+
+      const marker = L.circleMarker(
+        [lat, lon],
+        {
+          radius: 6,
+          color: markerColor,
+          fillColor: markerColor,
+          weight: 1,
+          opacity: 1,
+          fillOpacity: 0.78
+        }
+      );
+
+      /*
+       * クリック時に全属性を表示する。
+       */
+      marker.bindPopup(
+        buildPopup(row),
+        {
+          maxWidth: 420,
+          minWidth: 280
+        }
+      );
+
+      /*
+       * SiteName_originalをTooltipとして設定する。
+       */
+      const permanent =
+        shouldShowPermanentLabel();
+
+      marker.bindTooltip(
+        escapeHtml(
+          row.SiteName_original ||
+          "名称未記載"
+        ),
+        {
+          permanent,
+          direction: "top",
+          offset: [0, -5],
+          className: permanent
+            ? "site-name-label"
+            : ""
+        }
+      );
+
+      return marker;
+    }
+
+    /*
+     * 現在の検索・時代区分条件で表示する。
+     */
+    function renderCurrentFilters(
+      fitBounds = false
+    ) {
+      const records = getFilteredRecords();
+      const selectedColumns =
+        getSelectedChronologyColumns();
+
+      currentRecords = records;
+      markerCluster.clearLayers();
+
+      const markers = [];
+
+      for (const row of records) {
+        const primaryChronology =
+          getPrimaryChronology(
+            row,
+            selectedColumns
+          );
+
+        const markerColor = primaryChronology
+          ? getChronologyColor(primaryChronology)
+          : DEFAULT_MARKER_COLOR;
+
+        const marker = createMarker(
+          row,
+          markerColor
+        );
+
+        if (marker) {
+          markers.push(marker);
+        }
+      }
+
+      markerCluster.addLayers(markers);
+
+      const status =
+        document.getElementById("status");
+
+      const ageLabel =
+        selectedColumns.length > 0
+          ? `／時代: ${selectedColumns.join("・")}`
+          : "／時代: 全件";
+
+      status.textContent =
+        `${markers.length.toLocaleString("ja-JP")}件を表示` +
+        `／全${allRecords.length.toLocaleString("ja-JP")}件` +
+        ageLabel;
+
+      if (
+        fitBounds &&
+        markers.length > 0
+      ) {
+        const bounds = L
+          .featureGroup(markers)
+          .getBounds();
+
+        if (bounds.isValid()) {
+          map.fitBounds(
+            bounds.pad(0.05),
+            {
+              maxZoom: 15
+            }
+          );
+        }
+      }
+    }
+
+    /*
+     * ズーム変更時の処理。
+     */
+    map.on("zoomend", function () {
+      updateZoomLevel();
+
+      if (
+        getLabelMode() === "zoom" &&
+        allRecords.length > 0
+      ) {
+        renderCurrentFilters(false);
+      }
+    });
+
+    /*
+     * 時代区分UIイベント
+     */
+    function initializeChronologyEvents() {
+      const chronologyCheckboxes =
+        document.querySelectorAll(
+          ".chronology-checkbox"
+        );
+
+      const chronologyColors =
+        document.querySelectorAll(
+          ".chronology-color"
+        );
+
+      chronologyCheckboxes.forEach(
+        checkbox => {
+          checkbox.addEventListener(
+            "change",
+            function () {
+              renderCurrentFilters(true);
+            }
+          );
+        }
+      );
+
+      chronologyColors.forEach(
+        colorInput => {
+          colorInput.addEventListener(
+            "input",
+            function () {
+              renderCurrentFilters(false);
+            }
+          );
+        }
+      );
+
+      document
+        .getElementById("selectAllChronology")
+        .addEventListener(
+          "click",
+          function () {
+            chronologyCheckboxes.forEach(
+              checkbox => {
+                checkbox.checked = true;
+              }
+            );
+
+            renderCurrentFilters(true);
+          }
+        );
+
+      document
+        .getElementById("clearChronology")
+        .addEventListener(
+          "click",
+          function () {
+            chronologyCheckboxes.forEach(
+              checkbox => {
+                checkbox.checked = false;
+              }
+            );
+
+            renderCurrentFilters(true);
+          }
+        );
+
+      new Sortable(
+        document.getElementById(
+          "chronologyList"
+        ),
+        {
+          animation: 150,
+          handle: ".chronology-drag-handle",
+          ghostClass: "sortable-ghost",
+          chosenClass: "sortable-chosen",
+          onEnd: function () {
+            renderCurrentFilters(false);
+          }
+        }
+      );
+    }
+
+    /*
+     * ポリゴン読込を開始する。
+     *
+     * CSV読込とは独立して実行するため、
+     * 片方の読込に失敗してももう一方は表示できる。
+     */
+    loadSitePolygons();
+
+    /*
+     * CSV読込
+     */
+    Papa.parse(CSV_URL, {
+      download: true,
+      header: true,
+      skipEmptyLines: "greedy",
+      dynamicTyping: false,
+
+      complete: function (results) {
+        const requiredColumns = [
+          "Lat",
+          "Lon",
+          "SiteName_original",
+          ...CHRONOLOGY_OPTIONS.map(
+            item => item.column
+          )
+        ];
+
+        const fields =
+          results.meta.fields || [];
+
+        const missingColumns =
+          requiredColumns.filter(
+            column =>
+              !fields.includes(column)
+          );
+
+        if (missingColumns.length > 0) {
+          const status =
+            document.getElementById("status");
+
+          status.classList.add("error");
+
+          status.textContent =
+            "CSVに必要な列がありません: " +
+            missingColumns.join(", ");
+
+          return;
+        }
+
+        allRecords = results.data
+          .filter(
+            row =>
+              String(row.Lat ?? "").trim() !== ""
+          )
+          .filter(
+            row =>
+              String(row.Lon ?? "").trim() !== ""
+          )
+          .map(row => ({
+            ...row,
+            _searchText: searchableText(row)
+          }));
+
+        initializeChronologyEvents();
+        renderCurrentFilters(true);
+
+        const searchInput =
+          document.getElementById(
+            "searchInput"
+          );
+
+        const labelMode =
+          document.getElementById(
+            "labelMode"
+          );
+
+        /*
+         * 検索入力
+         */
+        searchInput.addEventListener(
+          "input",
+          function () {
+            clearTimeout(searchTimer);
+
+            searchTimer = setTimeout(
+              function () {
+                renderCurrentFilters(false);
+              },
+              180
+            );
+          }
+        );
+
+        /*
+         * 遺跡名表示モードの変更
+         */
+        labelMode.addEventListener(
+          "change",
+          function () {
+            renderCurrentFilters(false);
+          }
+        );
+
+        if (results.errors.length > 0) {
+          console.warn(
+            "CSV解析時の警告:",
+            results.errors
+          );
+        }
+      },
+
+      error: function (error) {
+        console.error(error);
+
+        const status =
+          document.getElementById("status");
+
+        status.classList.add("error");
+
+        status.innerHTML =
+          "CSVを読み込めませんでした。<br>" +
+          "CSVのファイル名、配置場所、" +
+          "文字コード（UTF-8）を確認してください。";
+      }
+    });
+  </script>
+</body>
+</html>
