@@ -38,10 +38,10 @@
 | **前処理** | `presence_status` | 出現状態ラベル | `presence == 1` を `presence`、それ以外を `apparent_absence` とする | `c06`, `c14` | 実在の不在確認ではなく、記録上の不在 |
 | **前処理** | `sequence_string` | 7時期系列文字列 | `Pa`〜`Me` のpresence/apparent_absence系列を7桁の0/1文字列として表す | `c06`, `c11` | 例：`0100000` |
 
-    ### 2-2. 単純指標分析：連続性基本指標の定量化
+   ### 2-2. 単純指標分析：連続性基本指標の定量化
     
-      - 目的：各地点の出現期間・連続性・断続性を基本指標として定量化する
-      - 達成目標：presence_phase_count` `longest_run_length` `gap_count・continuity_index` 等が全地点について算出されている
+   - 目的：各地点の出現期間・連続性・断続性を基本指標として定量化する
+   - 達成目標：presence_phase_count` `longest_run_length` `gap_count・continuity_index` 等が全地点について算出されている
         
 | 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
 |---|---|---|---|---|---|
