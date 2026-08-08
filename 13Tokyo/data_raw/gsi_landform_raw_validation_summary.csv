@@ -1,0 +1,5 @@
+layer,object,epsg,feature_count,written,gpkg_path,exists_in_gpkg,target_area_mode,zoom,tile_count_requested,tile_buffer_n,geometry_processing
+landform_natural_raw_4326,landform_natural_raw_4326,4326,1052,TRUE,data_raw/Kokubunji_Jomon.gpkg,TRUE,gpkg_layer,16,208,0,raw_geometry_no_make_valid_no_clip_no_dissolve
+landform_artificial_raw_4326,landform_artificial_raw_4326,4326,226,TRUE,data_raw/Kokubunji_Jomon.gpkg,TRUE,gpkg_layer,16,208,0,raw_geometry_no_make_valid_no_clip_no_dissolve
+landform_natural_6677,landform_natural_6677,6677,1052,TRUE,data_raw/Kokubunji_Jomon.gpkg,TRUE,gpkg_layer,16,208,0,raw_geometry_no_make_valid_no_clip_no_dissolve
+landform_artificial_6677,landform_artificial_6677,6677,226,TRUE,data_raw/Kokubunji_Jomon.gpkg,TRUE,gpkg_layer,16,208,0,raw_geometry_no_make_valid_no_clip_no_dissolve

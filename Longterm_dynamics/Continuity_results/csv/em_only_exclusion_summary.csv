@@ -1,0 +1,4 @@
+item,n_rows,note
+input_rows_total,6520,入力CSVの全行数
+excluded_em_only_rows,892,EMのみ地点として分析対象から除外した行数。除外行の個別一覧は出力しない。
+analysis_rows_after_exclusion,5628,"Pa, Jo, Ya, Ko, Na, He, Me による連続性分析へ進める行数"

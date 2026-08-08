@@ -1,0 +1,7 @@
+sequence_cluster_id,n_places,dominant_sequence_class_code,dominant_sequence_class,mean_presence_phase_count,mean_longest_run_length,mean_gap_count,mean_continuity_index,typical_sequence,typical_sequence_label
+SC0_no_presence,146,0,no_presence,0,0,0,0,0000000,seq_0000000
+SC1,4594,1,single_phase,2.3110579016107966,1.8241184153243362,0.43164997823247714,0.6174998445176942,0100000,seq_0100000
+SC2,51,1,single_phase,1.0588235294117647,1,0.058823529411764705,0.6799019607843136,0010000,seq_0010000
+SC3,763,1,single_phase,1.2896461336828309,1.272608125819135,0.01703800786369594,0.7074798726830182,0001000,seq_0001000
+SC4,28,1,single_phase,1,1,0,0.7,0000100,seq_0000100
+SC5,46,1,single_phase,1,1,0,0.7,1000000,seq_1000000

@@ -1,0 +1,964 @@
+---
+title: "GSI Landform Vector Tiles Raw Geometry Validation"
+subtitle: "国土地理院 地形分類ベクトルタイル GeoJSONジオメトリ検証用出力"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+# 目的
+
+このRmdは、国土地理院ベクトルタイル「地形分類（自然地形）」および「地形分類（人工地形）」のGeoJSONタイルを取得し、**GeoJSONタイル内のジオメトリをできるだけそのまま**GPKGへ保存する検証用ツールである。
+
+この検証版では、原因切り分けのため、以下の処理を行わない。
+
+- `st_make_valid()`
+- `st_collection_extract()`
+- `st_intersection()` によるclip
+- `st_union()`
+- dissolve
+- buffer処理
+- 面積閾値によるスリバー除去
+
+出力レイヤは以下の4つである。
+
+- `landform_natural_raw_4326`
+- `landform_artificial_raw_4326`
+- `landform_natural_6677`
+- `landform_artificial_6677`
+
+`*_raw_4326` は、GeoJSONタイルのジオメトリをEPSG:4326のまま保存する。  
+`*_6677` は、同じジオメトリに対して `st_transform(6677)` だけを行った検証用レイヤである。
+
+# c01_setup
+
+**目的**：必要パッケージと共通関数を準備する。
+
+```{r c01_setup, eval=TRUE, message=FALSE, warning=FALSE}
+required_pkgs <- c(
+  "sf", "dplyr", "tidyr", "purrr", "tibble", "readr"
+)
+
+for (pkg in required_pkgs) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+}
+
+suppressPackageStartupMessages({
+  library(sf)
+  library(dplyr)
+  library(tidyr)
+  library(purrr)
+  library(tibble)
+  library(readr)
+})
+
+safe_dir_create <- function(path) {
+  if (!dir.exists(path)) {
+    dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  }
+  invisible(path)
+}
+
+message("setup completed.")
+```
+
+# c02_parameters
+
+**目的**：対象範囲、ズームレベル、取得元URL、出力先を指定する。  
+**達成指標**：後続chunkで利用する対象範囲・タイル取得・保存条件が確定する。
+
+```{r c02_parameters, eval=TRUE}
+# -------------------------------------------------------------------------
+# 1. 対象範囲の指定方法
+# -------------------------------------------------------------------------
+# 選択肢：
+# - "gpkg_layer"  : GPKG内の既存ポリゴンレイヤのbboxを使う。
+# - "bbox_lonlat" : EPSG:4326のbboxを手入力する。
+# - "vector_file" : 外部ベクタファイルのbboxを使う。
+#
+# いずれの場合も、取得範囲は実形状ではなくbboxで決める。
+target_area_mode <- "gpkg_layer"
+
+# -------------------------------------------------------------------------
+# 2. gpkg_layer モード
+# -------------------------------------------------------------------------
+target_area_gpkg_path <- "data_raw/Kokubunji_Jomon.gpkg"
+
+# ユーザー指定の既定レイヤ。
+target_area_layer <- "city_buffer"
+
+# レイヤ名が異なる場合の代替候補。
+target_area_layer_fallbacks <- c(
+  "kokubunji_city_buffer",
+  "city_boundary",
+  "kokubunji_city_boundary",
+  "boundary"
+)
+
+# -------------------------------------------------------------------------
+# 3. bbox_lonlat モード
+# -------------------------------------------------------------------------
+# target_area_mode <- "bbox_lonlat" の場合に使用する。
+# EPSG:4326 の xmin, ymin, xmax, ymax。
+target_bbox_lonlat <- c(
+  xmin = 139.310996901,
+  ymin = 35.617607587,
+  xmax = 139.620042411,
+  ymax = 35.786072244
+)
+
+# -------------------------------------------------------------------------
+# 4. vector_file モード
+# -------------------------------------------------------------------------
+# target_area_mode <- "vector_file" の場合に使用する。
+# GPKGの場合は target_area_vector_layer を指定する。
+# Shapefile / GeoJSON 等では NA のままでよい。
+target_area_vector_path <- "data_raw/target_area.gpkg"
+target_area_vector_layer <- NA_character_
+
+# -------------------------------------------------------------------------
+# 5. タイル取得設定
+# -------------------------------------------------------------------------
+# 地形分類詳細版は z = 14〜16 を想定する。
+gsi_landform_zoom <- 16
+
+if (!gsi_landform_zoom %in% 14:16) {
+  stop("gsi_landform_zoom は 14, 15, 16 のいずれかにしてください。")
+}
+
+# bboxを含むタイルの外側に追加で取得するタイル数。
+# 検証用には 0 が基本。周辺も確認する場合は 1 以上にする。
+tile_buffer_n <- 0
+
+# サーバーへの連続アクセスを避けるための待機秒数。
+request_sleep_sec <- 0.03
+
+# -------------------------------------------------------------------------
+# 6. 出力設定
+# -------------------------------------------------------------------------
+# 既定では対象範囲GPKGに検証レイヤを追加保存する。
+# 別ファイルに保存する場合は以下を変更する。
+output_gpkg_path <- target_area_gpkg_path
+
+overwrite_existing_layers <- TRUE
+
+output_layer_natural_raw_4326 <- "landform_natural_raw_4326"
+output_layer_artificial_raw_4326 <- "landform_artificial_raw_4326"
+output_layer_natural_6677 <- "landform_natural_6677"
+output_layer_artificial_6677 <- "landform_artificial_6677"
+
+output_crs_epsg <- 6677
+
+summary_csv_path <- file.path(
+  dirname(output_gpkg_path),
+  "gsi_landform_raw_validation_summary.csv"
+)
+
+# -------------------------------------------------------------------------
+# 7. 国土地理院 地形分類ベクトルタイルURL
+# -------------------------------------------------------------------------
+gsi_landform_sources <- tibble::tribble(
+  ~source_key, ~url_template,
+  "natural",
+  "https://cyberjapandata.gsi.go.jp/xyz/experimental_landformclassification1/{z}/{x}/{y}.geojson",
+  "artificial",
+  "https://cyberjapandata.gsi.go.jp/xyz/experimental_landformclassification2/{z}/{x}/{y}.geojson"
+)
+
+parameter_table <- tibble::tibble(
+  parameter = c(
+    "target_area_mode",
+    "target_area_gpkg_path",
+    "target_area_layer",
+    "gsi_landform_zoom",
+    "tile_buffer_n",
+    "output_gpkg_path",
+    "output_crs_epsg"
+  ),
+  value = c(
+    target_area_mode,
+    target_area_gpkg_path,
+    target_area_layer,
+    as.character(gsi_landform_zoom),
+    as.character(tile_buffer_n),
+    output_gpkg_path,
+    as.character(output_crs_epsg)
+  )
+)
+
+print(parameter_table)
+```
+
+# c03_define-target-bbox
+
+**目的**：`target_area_mode` に応じて対象範囲bboxをEPSG:4326で作成する。  
+**達成指標**：`target_bbox_4326` が作成され、xmin, ymin, xmax, ymax が確認できる。
+
+```{r c03_define-target-bbox, eval=TRUE}
+read_bbox_from_gpkg_layer <- function(gpkg_path, layer_name, fallback_layers = character()) {
+  if (!file.exists(gpkg_path)) {
+    stop("対象範囲GPKGが見つかりません: ", gpkg_path)
+  }
+
+  available_layers <- sf::st_layers(gpkg_path)$name
+  selected_layer <- layer_name
+
+  if (!selected_layer %in% available_layers) {
+    fallback_hit <- fallback_layers[fallback_layers %in% available_layers]
+
+    if (length(fallback_hit) > 0) {
+      warning(
+        "指定レイヤが見つからないため、代替レイヤを使用します: ",
+        selected_layer,
+        " -> ",
+        fallback_hit[1]
+      )
+      selected_layer <- fallback_hit[1]
+    } else {
+      stop(
+        "対象範囲レイヤが見つかりません: ", selected_layer,
+        "\n利用可能レイヤ: ", paste(available_layers, collapse = ", ")
+      )
+    }
+  }
+
+  x <- sf::st_read(
+    gpkg_path,
+    layer = selected_layer,
+    quiet = TRUE,
+    stringsAsFactors = FALSE
+  )
+
+  if (nrow(x) == 0) {
+    stop("対象範囲レイヤが0件です: ", selected_layer)
+  }
+
+  if (is.na(sf::st_crs(x))) {
+    stop("対象範囲レイヤのCRSが未定義です: ", selected_layer)
+  }
+
+  x_4326 <- sf::st_transform(x, 4326)
+  sf::st_bbox(x_4326)
+}
+
+read_bbox_from_lonlat <- function(bbox_lonlat) {
+  if (!all(c("xmin", "ymin", "xmax", "ymax") %in% names(bbox_lonlat))) {
+    stop("target_bbox_lonlat には xmin, ymin, xmax, ymax の名前付き値が必要です。")
+  }
+
+  sf::st_bbox(
+    bbox_lonlat,
+    crs = sf::st_crs(4326)
+  )
+}
+
+read_bbox_from_vector_file <- function(path, layer = NA_character_) {
+  if (!file.exists(path)) {
+    stop("対象範囲ベクタファイルが見つかりません: ", path)
+  }
+
+  if (is.na(layer) || length(layer) == 0 || layer == "") {
+    x <- sf::st_read(path, quiet = TRUE, stringsAsFactors = FALSE)
+  } else {
+    x <- sf::st_read(path, layer = layer, quiet = TRUE, stringsAsFactors = FALSE)
+  }
+
+  if (nrow(x) == 0) {
+    stop("対象範囲ベクタが0件です: ", path)
+  }
+
+  if (is.na(sf::st_crs(x))) {
+    stop("対象範囲ベクタのCRSが未定義です: ", path)
+  }
+
+  x_4326 <- sf::st_transform(x, 4326)
+  sf::st_bbox(x_4326)
+}
+
+if (target_area_mode == "gpkg_layer") {
+  target_bbox_4326 <- read_bbox_from_gpkg_layer(
+    gpkg_path = target_area_gpkg_path,
+    layer_name = target_area_layer,
+    fallback_layers = target_area_layer_fallbacks
+  )
+} else if (target_area_mode == "bbox_lonlat") {
+  target_bbox_4326 <- read_bbox_from_lonlat(target_bbox_lonlat)
+} else if (target_area_mode == "vector_file") {
+  target_bbox_4326 <- read_bbox_from_vector_file(
+    path = target_area_vector_path,
+    layer = target_area_vector_layer
+  )
+} else {
+  stop("target_area_mode が不正です: ", target_area_mode)
+}
+
+print(target_bbox_4326)
+```
+
+# c04_build-tile-index
+
+**目的**：対象bboxを含むXYZタイル番号を計算する。  
+**達成指標**：`tile_index` が作成され、取得対象タイル数が表示される。
+
+```{r c04_build-tile-index, eval=TRUE}
+webmercator_lat_limit <- 85.05112878
+
+clip_lat_for_xyz <- function(lat) {
+  pmax(pmin(lat, webmercator_lat_limit), -webmercator_lat_limit)
+}
+
+lon_to_tile_x <- function(lon, z) {
+  floor((lon + 180) / 360 * 2^z)
+}
+
+lat_to_tile_y <- function(lat, z) {
+  lat <- clip_lat_for_xyz(lat)
+  lat_rad <- lat * pi / 180
+  floor((1 - log(tan(lat_rad) + 1 / cos(lat_rad)) / pi) / 2 * 2^z)
+}
+
+clamp_tile_index <- function(v, z) {
+  pmax(pmin(v, 2^z - 1), 0)
+}
+
+x_min <- lon_to_tile_x(target_bbox_4326[["xmin"]], gsi_landform_zoom)
+x_max <- lon_to_tile_x(target_bbox_4326[["xmax"]], gsi_landform_zoom)
+
+# XYZタイルでは北ほどyが小さい。
+y_min <- lat_to_tile_y(target_bbox_4326[["ymax"]], gsi_landform_zoom)
+y_max <- lat_to_tile_y(target_bbox_4326[["ymin"]], gsi_landform_zoom)
+
+x_seq <- seq(
+  clamp_tile_index(x_min - tile_buffer_n, gsi_landform_zoom),
+  clamp_tile_index(x_max + tile_buffer_n, gsi_landform_zoom)
+)
+
+y_seq <- seq(
+  clamp_tile_index(y_min - tile_buffer_n, gsi_landform_zoom),
+  clamp_tile_index(y_max + tile_buffer_n, gsi_landform_zoom)
+)
+
+tile_index <- tidyr::expand_grid(
+  z = gsi_landform_zoom,
+  x = x_seq,
+  y = y_seq
+) |>
+  dplyr::mutate(
+    tile_id = paste(z, x, y, sep = "/")
+  )
+
+cat("zoom:", gsi_landform_zoom, "\n")
+cat("tile count:", nrow(tile_index), "\n")
+print(utils::head(tile_index))
+```
+
+# c05_fetch-geojson-tiles-raw
+
+**目的**：自然地形・人工地形のGeoJSONタイルを取得し、`sf`で読み込んで結合する。  
+**達成指標**：`landform_natural_raw_4326` と `landform_artificial_raw_4326` が作成される。
+
+```{r c05_fetch-geojson-tiles-raw, eval=TRUE}
+make_tile_url <- function(url_template, z, x, y) {
+  out <- gsub("\\{z\\}", z, url_template)
+  out <- gsub("\\{x\\}", x, out)
+  out <- gsub("\\{y\\}", y, out)
+  out
+}
+
+raw_fetch_log <- tibble::tibble(
+  source_key = character(),
+  tile_z = integer(),
+  tile_x = integer(),
+  tile_y = integer(),
+  tile_id = character(),
+  status = character(),
+  feature_count = integer(),
+  reason = character()
+)
+
+add_raw_fetch_log <- function(
+  source_key,
+  z,
+  x,
+  y,
+  tile_id,
+  status,
+  feature_count = NA_integer_,
+  reason = NA_character_
+) {
+  raw_fetch_log <<- dplyr::bind_rows(
+    raw_fetch_log,
+    tibble::tibble(
+      source_key = as.character(source_key),
+      tile_z = as.integer(z),
+      tile_x = as.integer(x),
+      tile_y = as.integer(y),
+      tile_id = as.character(tile_id),
+      status = as.character(status),
+      feature_count = as.integer(feature_count),
+      reason = as.character(reason)
+    )
+  )
+
+  invisible(TRUE)
+}
+
+read_one_geojson_tile_raw <- function(url, z, x, y, tile_id, source_key) {
+  tmp <- tempfile(fileext = ".geojson")
+  on.exit(unlink(tmp), add = TRUE)
+
+  ok <- tryCatch(
+    {
+      utils::download.file(
+        url = url,
+        destfile = tmp,
+        mode = "wb",
+        quiet = TRUE
+      )
+      TRUE
+    },
+    warning = function(w) FALSE,
+    error = function(e) FALSE
+  )
+
+  if (!ok || !file.exists(tmp) || file.info(tmp)$size == 0) {
+    add_raw_fetch_log(
+      source_key = source_key,
+      z = z,
+      x = x,
+      y = y,
+      tile_id = tile_id,
+      status = "download_empty_or_failed",
+      feature_count = 0L,
+      reason = "download failed or empty tile"
+    )
+    return(NULL)
+  }
+
+  tile_sf <- tryCatch(
+    {
+      suppressMessages(
+        sf::st_read(
+          tmp,
+          quiet = TRUE,
+          stringsAsFactors = FALSE
+        )
+      )
+    },
+    error = function(e) {
+      add_raw_fetch_log(
+        source_key = source_key,
+        z = z,
+        x = x,
+        y = y,
+        tile_id = tile_id,
+        status = "st_read_failed",
+        feature_count = 0L,
+        reason = conditionMessage(e)
+      )
+      NULL
+    }
+  )
+
+  if (is.null(tile_sf) || nrow(tile_sf) == 0) {
+    add_raw_fetch_log(
+      source_key = source_key,
+      z = z,
+      x = x,
+      y = y,
+      tile_id = tile_id,
+      status = "no_features",
+      feature_count = 0L,
+      reason = "no features"
+    )
+    return(NULL)
+  }
+
+  # GeoJSONタイルの座標は通常EPSG:4326。
+  # CRSが未定義の場合のみCRSを付与する。座標値・geometry構造は変更しない。
+  if (is.na(sf::st_crs(tile_sf))) {
+    sf::st_crs(tile_sf) <- 4326
+  }
+
+  tile_sf <- tile_sf |>
+    dplyr::mutate(
+      gsi_source_key = source_key,
+      tile_z = as.integer(z),
+      tile_x = as.integer(x),
+      tile_y = as.integer(y),
+      tile_id = tile_id,
+      tile_url = url
+    )
+
+  add_raw_fetch_log(
+    source_key = source_key,
+    z = z,
+    x = x,
+    y = y,
+    tile_id = tile_id,
+    status = "read_ok",
+    feature_count = nrow(tile_sf),
+    reason = NA_character_
+  )
+
+  tile_sf
+}
+
+fetch_one_landform_source_raw <- function(source_key, url_template) {
+  source_key <- as.character(source_key)[1]
+  url_template <- as.character(url_template)[1]
+
+  cat("fetch source:", source_key, "\n")
+
+  tile_features <- vector("list", nrow(tile_index))
+
+  for (i in seq_len(nrow(tile_index))) {
+    z <- tile_index$z[i]
+    x <- tile_index$x[i]
+    y <- tile_index$y[i]
+    tile_id <- tile_index$tile_id[i]
+
+    tile_url <- make_tile_url(
+      url_template = url_template,
+      z = z,
+      x = x,
+      y = y
+    )
+
+    tile_features[[i]] <- read_one_geojson_tile_raw(
+      url = tile_url,
+      z = z,
+      x = x,
+      y = y,
+      tile_id = tile_id,
+      source_key = source_key
+    )
+
+    if (i %% 25 == 0 || i == nrow(tile_index)) {
+      cat("  processed:", i, "/", nrow(tile_index), "\n")
+    }
+
+    if (request_sleep_sec > 0) {
+      Sys.sleep(request_sleep_sec)
+    }
+  }
+
+  tile_features <- purrr::compact(tile_features)
+
+  if (length(tile_features) == 0) {
+    warning("取得できたタイル地物がありません: ", source_key)
+    return(NULL)
+  }
+
+  out <- dplyr::bind_rows(tile_features)
+  out$source_feature_row <- seq_len(nrow(out))
+
+  out
+}
+
+natural_src <- gsi_landform_sources |>
+  dplyr::filter(source_key == "natural")
+
+artificial_src <- gsi_landform_sources |>
+  dplyr::filter(source_key == "artificial")
+
+landform_natural_raw_4326 <- fetch_one_landform_source_raw(
+  source_key = natural_src$source_key[1],
+  url_template = natural_src$url_template[1]
+)
+
+landform_artificial_raw_4326 <- fetch_one_landform_source_raw(
+  source_key = artificial_src$source_key[1],
+  url_template = artificial_src$url_template[1]
+)
+
+raw_fetch_summary <- raw_fetch_log |>
+  dplyr::group_by(source_key, status) |>
+  dplyr::summarise(
+    tile_count = dplyr::n(),
+    feature_count = sum(feature_count, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(raw_fetch_summary)
+```
+
+# c06_add-code-labels
+
+**目的**：`code` に基づいて地形分類名称を属性として付与する。geometryには触れない。  
+**達成指標**：`landform_class` と `landform_group_for_model` が追加される。
+
+```{r c06_add-code-labels, eval=TRUE}
+landform_code_lookup_grouped <- tibble::tribble(
+  ~landform_class, ~landform_group_for_model, ~code_list,
+  "山地斜面等", "slope_mountain", "10101,11201,11202,11203,11204,1010101",
+  "崖･段丘崖", "scarp_terrace_edge", "10202,10204,2010201",
+  "地すべり地形", "landslide", "10205,10206",
+  "台地・段丘", "upland_terrace", "10301,10302,10303,10304,10305,10306,10307,10308,10310,10312,10314,10508,2010101",
+  "山麓堆積地形", "footslope_deposit", "10401,10402,10403,10404,10406,10407,3010101",
+  "扇状地", "fan", "10501,10502,3020101",
+  "自然堤防", "natural_levee", "10503,3040101",
+  "天井川等", "raised_river", "10506,10507,10801",
+  "砂州・砂丘", "sand_bar_dune", "10504,10505,10512,3050101",
+  "凹地・浅い谷", "shallow_valley_depression", "10601,2010301",
+  "氾濫平野・海岸平野", "floodplain_coastal_plain", "10701,10702,10705,3030101",
+  "後背低地・湿地", "backmarsh_wetland", "10703,10804,3030201",
+  "旧河道", "abandoned_channel", "10704,3040201,3040202",
+  "落堀", "crevasse_splay_scour", "3040301",
+  "河川敷・浜", "riverbed_beach", "10802,10803,10807,10808",
+  "水部", "water", "10805,10806,10901,10903,5010201",
+  "旧水部", "former_water", "10904,5010301",
+  "切土地", "cut_land", "11001,11003,11009,11011,4010301",
+  "農耕平坦化地", "agricultural_leveling", "11002",
+  "干拓地", "reclaimed_land", "11008,4010101",
+  "盛土地・埋立地", "fill_reclaimed_land", "11004,11005,11006,11007,11014,4010201",
+  "改変工事中", "under_modification", "11010"
+)
+
+landform_code_lookup <- landform_code_lookup_grouped |>
+  tidyr::separate_rows(code_list, sep = "\\s*,\\s*") |>
+  dplyr::transmute(
+    code_chr = as.character(code_list),
+    landform_class = landform_class,
+    landform_group_for_model = landform_group_for_model
+  )
+
+add_landform_labels_without_geometry_change <- function(x, source_key) {
+  if (is.null(x) || nrow(x) == 0) {
+    return(x)
+  }
+
+  code_col <- names(x)[tolower(names(x)) == "code"][1]
+
+  if (is.na(code_col)) {
+    warning("code列が見つかりません: ", source_key)
+    x$code_chr <- NA_character_
+    x$landform_class <- "未対応_code列なし"
+    x$landform_group_for_model <- "unknown"
+    return(x)
+  }
+
+  x_labeled <- x |>
+    dplyr::mutate(
+      code_chr = as.character(.data[[code_col]])
+    ) |>
+    dplyr::left_join(
+      landform_code_lookup,
+      by = "code_chr"
+    ) |>
+    dplyr::mutate(
+      landform_class = dplyr::if_else(
+        is.na(landform_class),
+        paste0("未対応コード_", code_chr),
+        landform_class
+      ),
+      landform_group_for_model = dplyr::if_else(
+        is.na(landform_group_for_model),
+        "unknown",
+        landform_group_for_model
+      )
+    )
+
+  unmatched_codes <- x_labeled |>
+    sf::st_drop_geometry() |>
+    dplyr::filter(grepl("^未対応コード_", landform_class)) |>
+    dplyr::distinct(code_chr) |>
+    dplyr::arrange(code_chr)
+
+  if (nrow(unmatched_codes) > 0) {
+    warning(
+      "凡例対応表にないcodeがあります: ",
+      source_key,
+      " / ",
+      paste(unmatched_codes$code_chr, collapse = ", ")
+    )
+  }
+
+  x_labeled
+}
+
+landform_natural_raw_4326 <- add_landform_labels_without_geometry_change(
+  landform_natural_raw_4326,
+  source_key = "natural"
+)
+
+landform_artificial_raw_4326 <- add_landform_labels_without_geometry_change(
+  landform_artificial_raw_4326,
+  source_key = "artificial"
+)
+
+label_summary <- dplyr::bind_rows(
+  if (!is.null(landform_natural_raw_4326)) {
+    landform_natural_raw_4326 |>
+      sf::st_drop_geometry() |>
+      dplyr::count(landform_class, name = "feature_count") |>
+      dplyr::mutate(source_key = "natural")
+  },
+  if (!is.null(landform_artificial_raw_4326)) {
+    landform_artificial_raw_4326 |>
+      sf::st_drop_geometry() |>
+      dplyr::count(landform_class, name = "feature_count") |>
+      dplyr::mutate(source_key = "artificial")
+  }
+) |>
+  dplyr::select(source_key, landform_class, feature_count) |>
+  dplyr::arrange(source_key, dplyr::desc(feature_count))
+
+print(label_summary)
+```
+
+# c07_transform-to-6677
+
+**目的**：GeoJSON由来のジオメトリに対して、EPSG:6677への座標変換だけを実行する。  
+**達成指標**：`landform_natural_6677` と `landform_artificial_6677` が作成される。
+
+```{r c07_transform-to-6677, eval=TRUE}
+transform_only <- function(x, target_epsg, layer_label) {
+  if (is.null(x) || nrow(x) == 0) {
+    warning("変換対象が0件です: ", layer_label)
+    return(x)
+  }
+
+  if (is.na(sf::st_crs(x))) {
+    stop("CRSが未定義です: ", layer_label)
+  }
+
+  sf::st_transform(x, target_epsg)
+}
+
+landform_natural_6677 <- transform_only(
+  landform_natural_raw_4326,
+  target_epsg = output_crs_epsg,
+  layer_label = output_layer_natural_6677
+)
+
+landform_artificial_6677 <- transform_only(
+  landform_artificial_raw_4326,
+  target_epsg = output_crs_epsg,
+  layer_label = output_layer_artificial_6677
+)
+
+crs_summary <- tibble::tibble(
+  object = c(
+    "landform_natural_raw_4326",
+    "landform_artificial_raw_4326",
+    "landform_natural_6677",
+    "landform_artificial_6677"
+  ),
+  epsg = c(
+    sf::st_crs(landform_natural_raw_4326)$epsg,
+    sf::st_crs(landform_artificial_raw_4326)$epsg,
+    sf::st_crs(landform_natural_6677)$epsg,
+    sf::st_crs(landform_artificial_6677)$epsg
+  ),
+  feature_count = c(
+    ifelse(is.null(landform_natural_raw_4326), 0L, nrow(landform_natural_raw_4326)),
+    ifelse(is.null(landform_artificial_raw_4326), 0L, nrow(landform_artificial_raw_4326)),
+    ifelse(is.null(landform_natural_6677), 0L, nrow(landform_natural_6677)),
+    ifelse(is.null(landform_artificial_6677), 0L, nrow(landform_artificial_6677))
+  )
+)
+
+print(crs_summary)
+```
+
+# c08_write-gpkg-layers
+
+**目的**：検証用4レイヤをGPKGへ保存する。  
+**達成指標**：`output_gpkg_path` に4つの検証用レイヤが作成される。
+
+```{r c08_write-gpkg-layers, eval=TRUE}
+safe_delete_gpkg_layer <- function(gpkg_path, layer_name) {
+  if (!file.exists(gpkg_path)) {
+    return(invisible(FALSE))
+  }
+
+  existing_layers <- tryCatch(
+    sf::st_layers(gpkg_path)$name,
+    error = function(e) character()
+  )
+
+  if (layer_name %in% existing_layers) {
+    tryCatch(
+      {
+        sf::st_delete(
+          dsn = gpkg_path,
+          layer = layer_name,
+          quiet = TRUE
+        )
+        TRUE
+      },
+      error = function(e) {
+        warning("既存レイヤを削除できませんでした: ", layer_name, " / ", e$message)
+        FALSE
+      }
+    )
+  } else {
+    invisible(FALSE)
+  }
+}
+
+write_sf_layer_to_gpkg <- function(x, gpkg_path, layer_name, overwrite_layer = TRUE) {
+  if (is.null(x) || nrow(x) == 0) {
+    warning("保存対象が0件のためスキップします: ", layer_name)
+    return(FALSE)
+  }
+
+  safe_dir_create(dirname(gpkg_path))
+
+  if (overwrite_layer) {
+    safe_delete_gpkg_layer(gpkg_path, layer_name)
+  }
+
+  sf::st_write(
+    obj = x,
+    dsn = gpkg_path,
+    layer = layer_name,
+    append = FALSE,
+    quiet = TRUE
+  )
+
+  TRUE
+}
+
+write_records <- tibble::tibble(
+  layer = character(),
+  object = character(),
+  epsg = integer(),
+  feature_count = integer(),
+  written = logical(),
+  gpkg_path = character()
+)
+
+layers_to_write <- list(
+  list(
+    object_name = "landform_natural_raw_4326",
+    object = landform_natural_raw_4326,
+    layer = output_layer_natural_raw_4326
+  ),
+  list(
+    object_name = "landform_artificial_raw_4326",
+    object = landform_artificial_raw_4326,
+    layer = output_layer_artificial_raw_4326
+  ),
+  list(
+    object_name = "landform_natural_6677",
+    object = landform_natural_6677,
+    layer = output_layer_natural_6677
+  ),
+  list(
+    object_name = "landform_artificial_6677",
+    object = landform_artificial_6677,
+    layer = output_layer_artificial_6677
+  )
+)
+
+for (item in layers_to_write) {
+  written <- write_sf_layer_to_gpkg(
+    x = item$object,
+    gpkg_path = output_gpkg_path,
+    layer_name = item$layer,
+    overwrite_layer = overwrite_existing_layers
+  )
+
+  write_records <- dplyr::bind_rows(
+    write_records,
+    tibble::tibble(
+      layer = item$layer,
+      object = item$object_name,
+      epsg = ifelse(is.null(item$object), NA_integer_, sf::st_crs(item$object)$epsg),
+      feature_count = ifelse(is.null(item$object), 0L, nrow(item$object)),
+      written = written,
+      gpkg_path = output_gpkg_path
+    )
+  )
+}
+
+print(write_records)
+```
+
+# c09_write-summary
+
+**目的**：取得・変換・保存結果をCSVへ記録し、GPKG内のレイヤ存在を確認する。  
+**達成指標**：summary CSVが保存され、4つの検証用レイヤの存在確認結果が表示される。
+
+```{r c09_write-summary, eval=TRUE}
+output_layers_after_write <- tryCatch(
+  sf::st_layers(output_gpkg_path)$name,
+  error = function(e) character()
+)
+
+layer_check <- tibble::tibble(
+  expected_layer = c(
+    output_layer_natural_raw_4326,
+    output_layer_artificial_raw_4326,
+    output_layer_natural_6677,
+    output_layer_artificial_6677
+  ),
+  exists_in_gpkg = expected_layer %in% output_layers_after_write,
+  gpkg_path = output_gpkg_path
+)
+
+summary_table <- write_records |>
+  dplyr::left_join(
+    layer_check,
+    by = c("layer" = "expected_layer", "gpkg_path" = "gpkg_path")
+  ) |>
+  dplyr::mutate(
+    target_area_mode = target_area_mode,
+    zoom = gsi_landform_zoom,
+    tile_count_requested = nrow(tile_index),
+    tile_buffer_n = tile_buffer_n,
+    geometry_processing = "raw_geometry_no_make_valid_no_clip_no_dissolve"
+  )
+
+safe_dir_create(dirname(summary_csv_path))
+
+readr::write_csv(
+  summary_table,
+  summary_csv_path
+)
+
+fetch_log_csv <- file.path(
+  dirname(output_gpkg_path),
+  "gsi_landform_raw_validation_fetch_log.csv"
+)
+
+readr::write_csv(
+  raw_fetch_log,
+  fetch_log_csv
+)
+
+cat("summary CSV:", summary_csv_path, "\n")
+cat("fetch log CSV:", fetch_log_csv, "\n")
+cat("output GPKG:", output_gpkg_path, "\n")
+print(layer_check)
+print(summary_table)
+```
+
+# c10_chunk-list
+
+**目的**：このRmdのchunk一覧を出力する。  
+**達成指標**：実行順序を確認できる。
+
+```{r c10_chunk-list, eval=TRUE}
+chunk_list <- tibble::tribble(
+  ~order, ~chunk_name, ~purpose,
+  1L, "c01_setup", "必要パッケージと共通関数を準備する",
+  2L, "c02_parameters", "対象範囲・zoom・URL・出力先を指定する",
+  3L, "c03_define-target-bbox", "target_area_modeに応じてEPSG:4326 bboxを作成する",
+  4L, "c04_build-tile-index", "bboxを含むXYZタイル番号を計算する",
+  5L, "c05_fetch-geojson-tiles-raw", "GeoJSONタイルを取得しsfで結合する",
+  6L, "c06_add-code-labels", "codeから地形分類名称を属性付与する",
+  7L, "c07_transform-to-6677", "st_transformのみでEPSG:6677版を作成する",
+  8L, "c08_write-gpkg-layers", "検証用4レイヤをGPKG保存する",
+  9L, "c09_write-summary", "取得・保存結果をCSVに記録する",
+  10L, "c10_chunk-list", "chunk一覧を出力する"
+)
+
+print(chunk_list)
+```

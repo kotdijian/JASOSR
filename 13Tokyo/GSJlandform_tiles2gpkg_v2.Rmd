@@ -1,0 +1,1886 @@
+---
+title: "GSI Landform Vector Tiles with Sliver Filter and Code Raster"
+subtitle: "国土地理院 地形分類ベクトルタイル取得・スリバー除去・同一code隣接dissolve・codeラスタ化"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+# 目的
+
+このRmdは、国土地理院ベクトルタイル「地形分類（自然地形）」「地形分類（人工地形）」を取得し、GeoPackageに保存したうえで、以下を行う単独ツールである。
+
+1. `code` 凡例列の追加
+2. 面積閾値によるスリバー候補の分離
+3. 同一 `code` で隣接するポリゴンの dissolve
+4. dissolve 後のスリバー候補の再分離
+5. `code` ごとのカテゴリラスタ GeoTIFF 出力
+
+方針：
+
+- ベクトルタイル由来の細片を完全に解釈して補正するのではなく、面積閾値により **候補として退避** する。
+- 元ポリゴンを不用意に破壊しないため、取得直後のclipは既定で行わない。
+- dissolveは `st_union()` による実dissolveを行う。
+- dissolveに失敗したcomponentは、原因になりやすい地物をログに記録し、可能な範囲で処理を継続する。
+- codeラスタ化は解析用の派生成果として出力する。ベクトルの確認・編集用成果は残す。
+
+# c01_setup
+
+```{r c01_setup, eval=TRUE, message=FALSE, warning=FALSE}
+required_pkgs <- c(
+  "sf",
+  "terra",
+  "dplyr",
+  "tidyr",
+  "purrr",
+  "tibble",
+  "readr"
+)
+
+for (pkg in required_pkgs) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+}
+
+suppressPackageStartupMessages({
+  library(sf)
+  library(terra)
+  library(dplyr)
+  library(tidyr)
+  library(purrr)
+  library(tibble)
+  library(readr)
+})
+
+options(stringsAsFactors = FALSE)
+sf::sf_use_s2(FALSE)
+
+safe_dir_create <- function(path) {
+  if (!dir.exists(path)) {
+    dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  }
+  invisible(path)
+}
+
+safe_st_make_valid <- function(x) {
+  suppressWarnings(sf::st_make_valid(x))
+}
+
+safe_delete_gpkg_layer <- function(gpkg_path, layer_name) {
+  if (!file.exists(gpkg_path)) {
+    return(invisible(FALSE))
+  }
+
+  existing_layers <- tryCatch(
+    sf::st_layers(gpkg_path)$name,
+    error = function(e) character()
+  )
+
+  if (layer_name %in% existing_layers) {
+    tryCatch(
+      {
+        sf::st_delete(
+          dsn = gpkg_path,
+          layer = layer_name,
+          quiet = TRUE
+        )
+        TRUE
+      },
+      error = function(e) {
+        warning("既存レイヤを削除できませんでした: ", layer_name, " / ", e$message)
+        FALSE
+      }
+    )
+  }
+
+  invisible(FALSE)
+}
+
+write_sf_layer_to_gpkg <- function(x, gpkg_path, layer_name, overwrite_layer = TRUE) {
+  if (is.null(x) || nrow(x) == 0) {
+    warning("保存対象が0件のためスキップします: ", layer_name)
+    return(FALSE)
+  }
+
+  safe_dir_create(dirname(gpkg_path))
+
+  if (overwrite_layer) {
+    safe_delete_gpkg_layer(gpkg_path, layer_name)
+  }
+
+  sf::st_write(
+    obj = x,
+    dsn = gpkg_path,
+    layer = layer_name,
+    append = FALSE,
+    quiet = TRUE
+  )
+
+  TRUE
+}
+
+safe_extract_polygon <- function(x) {
+  if (is.null(x) || nrow(x) == 0) {
+    return(x)
+  }
+
+  out <- tryCatch(
+    {
+      suppressWarnings(sf::st_collection_extract(x, "POLYGON"))
+    },
+    error = function(e) NULL
+  )
+
+  out
+}
+
+safe_filter_nonempty <- function(x) {
+  if (is.null(x) || nrow(x) == 0) {
+    return(x)
+  }
+
+  empty_geometry <- tryCatch(
+    sf::st_is_empty(sf::st_geometry(x)),
+    error = function(e) rep(FALSE, nrow(x))
+  )
+
+  x[!empty_geometry, , drop = FALSE]
+}
+
+safe_make_valid_by_feature <- function(x, stage = "make_valid") {
+  if (is.null(x) || nrow(x) == 0) {
+    return(x)
+  }
+
+  valid_all <- tryCatch(
+    {
+      suppressWarnings(safe_st_make_valid(x))
+    },
+    error = function(e) NULL
+  )
+
+  if (!is.null(valid_all)) {
+    valid_all <- safe_extract_polygon(valid_all)
+    valid_all <- safe_filter_nonempty(valid_all)
+
+    if (!is.null(valid_all) && nrow(valid_all) > 0) {
+      return(valid_all)
+    }
+  }
+
+  out_list <- vector("list", nrow(x))
+
+  for (i in seq_len(nrow(x))) {
+    x_i <- x[i, , drop = FALSE]
+
+    valid_i <- tryCatch(
+      {
+        suppressWarnings(safe_st_make_valid(x_i))
+      },
+      error = function(e) NULL
+    )
+
+    if (is.null(valid_i) || nrow(valid_i) == 0) {
+      next
+    }
+
+    valid_i <- safe_extract_polygon(valid_i)
+    valid_i <- safe_filter_nonempty(valid_i)
+
+    if (is.null(valid_i) || nrow(valid_i) == 0) {
+      next
+    }
+
+    out_list[[i]] <- valid_i
+  }
+
+  out_list <- purrr::compact(out_list)
+
+  if (length(out_list) == 0) {
+    return(x[0, , drop = FALSE])
+  }
+
+  dplyr::bind_rows(out_list)
+}
+
+cat("setup completed.\n")
+```
+
+# c02_parameters
+
+```{r c02_parameters, eval=TRUE}
+# -------------------------------------------------------------------------
+# 1. 対象範囲
+# -------------------------------------------------------------------------
+target_area_mode <- "gpkg_layer"
+
+target_area_gpkg_path <- "data_raw/Kokubunji_Jomon.gpkg"
+target_area_layer <- "kokubunji_city_buffer"
+target_area_layer_fallbacks <- c(
+  "kokubunji_city_boundary",
+  "city_boundary",
+  "boundary"
+)
+
+target_bbox_lonlat <- c(
+  xmin = 139.310996901,
+  ymin = 35.617607587,
+  xmax = 139.620042411,
+  ymax = 35.786072244
+)
+
+target_area_vector_path <- "data_raw/target_area.gpkg"
+target_area_vector_layer <- NA_character_
+
+# TRUEの場合、指定ベクタの実形状ではなく外接矩形bboxを対象範囲にする。
+use_bbox_as_target_area <- TRUE
+
+# -------------------------------------------------------------------------
+# 2. 出力先
+# -------------------------------------------------------------------------
+output_gpkg_path <- target_area_gpkg_path
+overwrite_existing_layers <- TRUE
+save_target_area_layer <- TRUE
+
+output_layer_natural <- "gsi_landform_natural"
+output_layer_artificial <- "gsi_landform_artificial"
+output_layer_target_area <- "gsi_landform_target_area"
+
+output_layer_natural_labeled <- "gsi_landform_natural_labeled"
+output_layer_artificial_labeled <- "gsi_landform_artificial_labeled"
+
+output_layer_natural_sliver_filtered <- "gsi_landform_natural_labeled_sliver_filtered"
+output_layer_artificial_sliver_filtered <- "gsi_landform_artificial_labeled_sliver_filtered"
+output_layer_natural_sliver_candidates <- "gsi_landform_natural_labeled_sliver_candidates"
+output_layer_artificial_sliver_candidates <- "gsi_landform_artificial_labeled_sliver_candidates"
+
+output_layer_natural_dissolved <- "gsi_landform_natural_labeled_dissolved"
+output_layer_artificial_dissolved <- "gsi_landform_artificial_labeled_dissolved"
+output_layer_natural_dissolved_clean <- "gsi_landform_natural_labeled_dissolved_clean"
+output_layer_artificial_dissolved_clean <- "gsi_landform_artificial_labeled_dissolved_clean"
+output_layer_natural_dissolved_sliver_candidates <- "gsi_landform_natural_labeled_dissolved_sliver_candidates"
+output_layer_artificial_dissolved_sliver_candidates <- "gsi_landform_artificial_labeled_dissolved_sliver_candidates"
+
+# -------------------------------------------------------------------------
+# 3. 国土地理院ベクトルタイル
+# -------------------------------------------------------------------------
+fetch_natural_landform <- TRUE
+fetch_artificial_landform <- TRUE
+
+gsi_landform_sources <- tibble::tribble(
+  ~source_key, ~layer_name, ~url_template,
+  "natural", output_layer_natural,
+  "https://cyberjapandata.gsi.go.jp/xyz/experimental_landformclassification1/{z}/{x}/{y}.geojson",
+  "artificial", output_layer_artificial,
+  "https://cyberjapandata.gsi.go.jp/xyz/experimental_landformclassification2/{z}/{x}/{y}.geojson"
+)
+
+gsi_landform_zoom <- 16
+tile_buffer_n <- 1
+request_sleep_sec <- 0.03
+
+# 取得直後のclipは、TopologyExceptionやグリッド状欠落の原因になりやすいため既定ではFALSE。
+# タイル選択自体は対象bboxに基づくため、出力範囲は概ね対象周辺に限定される。
+clip_vector_in_fetch <- FALSE
+
+# -------------------------------------------------------------------------
+# 4. geometry処理
+# -------------------------------------------------------------------------
+make_valid_after_fetch <- TRUE
+make_valid_before_dissolve <- TRUE
+
+# -------------------------------------------------------------------------
+# 5. スリバー除去
+# -------------------------------------------------------------------------
+apply_pre_dissolve_sliver_filter <- TRUE
+apply_post_dissolve_sliver_filter <- TRUE
+
+# 既定値。調整候補：
+# 25  = 5m x 5m程度未満を候補化
+# 100 = 10m x 10m程度未満を候補化
+# 400 = 20m x 20m程度未満を候補化
+pre_dissolve_sliver_min_area_m2 <- 100
+post_dissolve_sliver_min_area_m2 <- 100
+
+# TRUE：小面積地物を削除せず、別レイヤに退避し、主解析レイヤから除外する。
+# FALSE：主解析レイヤに残すが sliver_candidate 列だけ付与する。
+exclude_sliver_candidates_from_main <- TRUE
+
+# 面積計算不能地物を主レイヤに残すか。
+keep_area_na_features <- TRUE
+
+# codeごとに面積閾値を変えたい場合に使う。
+# 例：細長い河道系を残したい場合は該当codeの閾値を小さくする。
+sliver_threshold_by_code <- tibble::tribble(
+  ~code_chr, ~min_area_m2,
+  "", NA_real_
+) |>
+  dplyr::filter(code_chr != "")
+
+# -------------------------------------------------------------------------
+# 6. dissolve設定
+# -------------------------------------------------------------------------
+# "touches"    : 境界接触を接続とする。過剰結合を抑えやすい。
+# "intersects" : 境界接触・重複・点接触を接続とする。初期版に近いが過剰結合しやすい。
+dissolve_connection_method <- "touches"
+
+# 微小隙間を吸収してから接続判定する場合に使用。通常は0。
+dissolve_snap_buffer_m <- 0
+
+# union失敗時に、疑わしい地物を小面積順に落として再unionする最大試行数。
+union_drop_max_features <- 20
+
+# -------------------------------------------------------------------------
+# 7. codeラスタ化
+# -------------------------------------------------------------------------
+create_code_rasters <- TRUE
+
+# dissolve後・スリバー除去後のcleanレイヤをラスタ化する。
+raster_input_stage <- "dissolved_clean"
+
+# メートル系CRSでのセルサイズ。
+raster_cell_size_m <- 10
+raster_mask_to_target_area <- TRUE
+rasterize_touches <- FALSE
+raster_datatype <- "INT4S"
+raster_gdal_options <- c("COMPRESS=LZW")
+
+raster_output_dir <- dirname(output_gpkg_path)
+raster_natural_code_path <- file.path(
+  raster_output_dir,
+  paste0("gsi_landform_natural_code_", raster_input_stage, "_", raster_cell_size_m, "m.tif")
+)
+raster_artificial_code_path <- file.path(
+  raster_output_dir,
+  paste0("gsi_landform_artificial_code_", raster_input_stage, "_", raster_cell_size_m, "m.tif")
+)
+raster_code_lookup_csv <- file.path(
+  raster_output_dir,
+  "gsi_landform_code_raster_lookup.csv"
+)
+
+summary_csv_path <- file.path(
+  dirname(output_gpkg_path),
+  "gsi_landform_vector_tile_processing_summary.csv"
+)
+
+parameter_table <- tibble::tribble(
+  ~group, ~parameter, ~value,
+  "target", "target_area_mode", target_area_mode,
+  "target", "target_area_gpkg_path", target_area_gpkg_path,
+  "target", "target_area_layer", target_area_layer,
+  "target", "use_bbox_as_target_area", as.character(use_bbox_as_target_area),
+  "output", "output_gpkg_path", output_gpkg_path,
+  "tile", "gsi_landform_zoom", as.character(gsi_landform_zoom),
+  "tile", "tile_buffer_n", as.character(tile_buffer_n),
+  "fetch", "clip_vector_in_fetch", as.character(clip_vector_in_fetch),
+  "sliver", "pre_dissolve_sliver_min_area_m2", as.character(pre_dissolve_sliver_min_area_m2),
+  "sliver", "post_dissolve_sliver_min_area_m2", as.character(post_dissolve_sliver_min_area_m2),
+  "dissolve", "dissolve_connection_method", dissolve_connection_method,
+  "raster", "create_code_rasters", as.character(create_code_rasters),
+  "raster", "raster_cell_size_m", as.character(raster_cell_size_m)
+)
+
+print(parameter_table)
+```
+
+# c03_read-target-area
+
+```{r c03_read-target-area, eval=TRUE}
+read_target_area_from_gpkg <- function(gpkg_path, layer_name, fallback_layers = character()) {
+  if (!file.exists(gpkg_path)) {
+    stop("対象範囲GPKGが見つかりません: ", gpkg_path)
+  }
+
+  available_layers <- sf::st_layers(gpkg_path)$name
+  selected_layer <- layer_name
+
+  if (!selected_layer %in% available_layers) {
+    fallback_hit <- fallback_layers[fallback_layers %in% available_layers]
+
+    if (length(fallback_hit) > 0) {
+      warning(
+        "指定レイヤが見つからないため、代替レイヤを使用します: ",
+        selected_layer,
+        " -> ",
+        fallback_hit[1]
+      )
+      selected_layer <- fallback_hit[1]
+    } else {
+      stop(
+        "対象範囲レイヤが見つかりません: ", selected_layer,
+        "\n利用可能レイヤ: ", paste(available_layers, collapse = ", ")
+      )
+    }
+  }
+
+  sf::st_read(gpkg_path, layer = selected_layer, quiet = TRUE) |>
+    safe_st_make_valid()
+}
+
+read_target_area_from_bbox <- function(bbox_lonlat) {
+  bbox <- sf::st_bbox(
+    bbox_lonlat,
+    crs = sf::st_crs(4326)
+  )
+
+  sf::st_sf(
+    target_id = 1L,
+    geometry = sf::st_as_sfc(bbox)
+  ) |>
+    safe_st_make_valid()
+}
+
+read_target_area_from_vector_file <- function(path, layer = NA_character_) {
+  if (!file.exists(path)) {
+    stop("対象範囲ベクタファイルが見つかりません: ", path)
+  }
+
+  if (is.na(layer) || length(layer) == 0 || layer == "") {
+    sf::st_read(path, quiet = TRUE) |>
+      safe_st_make_valid()
+  } else {
+    sf::st_read(path, layer = layer, quiet = TRUE) |>
+      safe_st_make_valid()
+  }
+}
+
+if (target_area_mode == "gpkg_layer") {
+  target_area <- read_target_area_from_gpkg(
+    gpkg_path = target_area_gpkg_path,
+    layer_name = target_area_layer,
+    fallback_layers = target_area_layer_fallbacks
+  )
+} else if (target_area_mode == "bbox_lonlat") {
+  target_area <- read_target_area_from_bbox(target_bbox_lonlat)
+} else if (target_area_mode == "vector_file") {
+  target_area <- read_target_area_from_vector_file(
+    path = target_area_vector_path,
+    layer = target_area_vector_layer
+  )
+} else {
+  stop("target_area_mode が不正です: ", target_area_mode)
+}
+
+if (nrow(target_area) == 0) {
+  stop("対象範囲が0件です。")
+}
+
+if (is.na(sf::st_crs(target_area))) {
+  stop("対象範囲のCRSが未定義です。CRSを定義してから実行してください。")
+}
+
+target_area <- safe_st_make_valid(target_area)
+target_crs <- sf::st_crs(target_area)
+
+target_area_union_original <- sf::st_sf(
+  target_id = 1L,
+  geometry = sf::st_union(sf::st_geometry(target_area))
+) |>
+  safe_st_make_valid()
+
+target_bbox_sfc <- target_area_union_original |>
+  sf::st_transform(4326) |>
+  sf::st_bbox() |>
+  sf::st_as_sfc()
+
+target_bbox_area_4326 <- sf::st_sf(
+  target_id = 1L,
+  geometry = target_bbox_sfc
+)
+
+if (isTRUE(use_bbox_as_target_area)) {
+  target_area_union <- target_bbox_area_4326 |>
+    sf::st_transform(target_crs) |>
+    safe_st_make_valid()
+} else {
+  target_area_union <- target_area_union_original |>
+    safe_st_make_valid()
+}
+
+target_area_4326 <- target_area_union |>
+  sf::st_transform(4326)
+
+target_bbox_4326 <- sf::st_bbox(target_area_4326)
+
+cat("target CRS:", target_crs$input, "\n")
+cat("use_bbox_as_target_area:", use_bbox_as_target_area, "\n")
+print(target_bbox_4326)
+```
+
+# c04_build-tile-index
+
+```{r c04_build-tile-index, eval=TRUE}
+webmercator_lat_limit <- 85.05112878
+
+clip_lat_for_xyz <- function(lat) {
+  pmax(pmin(lat, webmercator_lat_limit), -webmercator_lat_limit)
+}
+
+lon_to_tile_x <- function(lon, z) {
+  floor((lon + 180) / 360 * 2^z)
+}
+
+lat_to_tile_y <- function(lat, z) {
+  lat <- clip_lat_for_xyz(lat)
+  lat_rad <- lat * pi / 180
+  floor((1 - log(tan(lat_rad) + 1 / cos(lat_rad)) / pi) / 2 * 2^z)
+}
+
+clamp_tile_index <- function(v, z) {
+  pmax(pmin(v, 2^z - 1), 0)
+}
+
+x_min <- lon_to_tile_x(target_bbox_4326[["xmin"]], gsi_landform_zoom)
+x_max <- lon_to_tile_x(target_bbox_4326[["xmax"]], gsi_landform_zoom)
+y_min <- lat_to_tile_y(target_bbox_4326[["ymax"]], gsi_landform_zoom)
+y_max <- lat_to_tile_y(target_bbox_4326[["ymin"]], gsi_landform_zoom)
+
+x_seq <- seq(
+  clamp_tile_index(x_min - tile_buffer_n, gsi_landform_zoom),
+  clamp_tile_index(x_max + tile_buffer_n, gsi_landform_zoom)
+)
+
+y_seq <- seq(
+  clamp_tile_index(y_min - tile_buffer_n, gsi_landform_zoom),
+  clamp_tile_index(y_max + tile_buffer_n, gsi_landform_zoom)
+)
+
+tile_index <- tidyr::expand_grid(
+  z = gsi_landform_zoom,
+  x = x_seq,
+  y = y_seq
+)
+
+cat("zoom:", gsi_landform_zoom, "\n")
+cat("tile count:", nrow(tile_index), "\n")
+print(utils::head(tile_index))
+```
+
+# c05_fetch-landform-tiles
+
+```{r c05_fetch-landform-tiles, eval=TRUE}
+make_tile_url <- function(url_template, z, x, y) {
+  out <- gsub("\\{z\\}", z, url_template)
+  out <- gsub("\\{x\\}", x, out)
+  out <- gsub("\\{y\\}", y, out)
+  out
+}
+
+fetch_log <- tibble::tibble(
+  source_key = character(),
+  layer_name = character(),
+  tile_z = integer(),
+  tile_x = integer(),
+  tile_y = integer(),
+  url = character(),
+  status = character(),
+  message = character()
+)
+
+add_fetch_log <- function(source_key, layer_name, z, x, y, url, status, message = NA_character_) {
+  fetch_log <<- dplyr::bind_rows(
+    fetch_log,
+    tibble::tibble(
+      source_key = source_key,
+      layer_name = layer_name,
+      tile_z = as.integer(z),
+      tile_x = as.integer(x),
+      tile_y = as.integer(y),
+      url = url,
+      status = status,
+      message = as.character(message)
+    )
+  )
+
+  invisible(TRUE)
+}
+
+read_one_geojson_tile <- function(url, z, x, y, source_key, layer_name) {
+  tmp <- tempfile(fileext = ".geojson")
+  on.exit(unlink(tmp), add = TRUE)
+
+  ok <- tryCatch(
+    {
+      utils::download.file(
+        url = url,
+        destfile = tmp,
+        mode = "wb",
+        quiet = TRUE
+      )
+      TRUE
+    },
+    warning = function(w) FALSE,
+    error = function(e) FALSE
+  )
+
+  if (!ok || !file.exists(tmp) || file.info(tmp)$size == 0) {
+    add_fetch_log(source_key, layer_name, z, x, y, url, "download_empty_or_failed")
+    return(NULL)
+  }
+
+  tile_sf <- tryCatch(
+    {
+      suppressMessages(
+        sf::st_read(
+          tmp,
+          quiet = TRUE,
+          stringsAsFactors = FALSE
+        )
+      )
+    },
+    error = function(e) {
+      add_fetch_log(source_key, layer_name, z, x, y, url, "st_read_failed", conditionMessage(e))
+      NULL
+    }
+  )
+
+  if (is.null(tile_sf) || nrow(tile_sf) == 0) {
+    add_fetch_log(source_key, layer_name, z, x, y, url, "no_features")
+    return(NULL)
+  }
+
+  if (is.na(sf::st_crs(tile_sf))) {
+    sf::st_crs(tile_sf) <- 4326
+  }
+
+  tile_sf <- tile_sf |>
+    dplyr::mutate(
+      gsi_source_key = source_key,
+      tile_z = z,
+      tile_x = x,
+      tile_y = y,
+      tile_url = url
+    )
+
+  tile_sf <- safe_extract_polygon(tile_sf)
+  tile_sf <- safe_filter_nonempty(tile_sf)
+
+  if (is.null(tile_sf) || nrow(tile_sf) == 0) {
+    add_fetch_log(source_key, layer_name, z, x, y, url, "no_polygon_features")
+    return(NULL)
+  }
+
+  if (isTRUE(make_valid_after_fetch)) {
+    tile_sf <- safe_make_valid_by_feature(tile_sf, stage = "tile_make_valid")
+  }
+
+  if (is.null(tile_sf) || nrow(tile_sf) == 0) {
+    add_fetch_log(source_key, layer_name, z, x, y, url, "empty_after_make_valid")
+    return(NULL)
+  }
+
+  add_fetch_log(source_key, layer_name, z, x, y, url, "ok")
+  tile_sf
+}
+
+clip_landform_bulk_if_requested <- function(x, target_sf, layer_name) {
+  if (!isTRUE(clip_vector_in_fetch)) {
+    x$clip_status <- "not_clipped_in_fetch"
+    return(x)
+  }
+
+  clipped <- tryCatch(
+    {
+      suppressWarnings(sf::st_intersection(x, target_sf))
+    },
+    error = function(e) {
+      warning(
+        "取得直後clipに失敗したため、未clipのまま保持します: ",
+        layer_name,
+        " / ",
+        conditionMessage(e)
+      )
+      NULL
+    }
+  )
+
+  if (is.null(clipped) || nrow(clipped) == 0) {
+    x$clip_status <- "fetch_clip_failed_kept_unclipped"
+    return(x)
+  }
+
+  clipped <- safe_extract_polygon(clipped)
+  clipped <- safe_filter_nonempty(clipped)
+
+  if (is.null(clipped) || nrow(clipped) == 0) {
+    x$clip_status <- "fetch_clip_empty_kept_unclipped"
+    return(x)
+  }
+
+  clipped$clip_status <- "clipped_in_fetch"
+  clipped
+}
+
+fetch_one_landform_source <- function(source_key, layer_name, url_template) {
+  source_key <- as.character(source_key)[1]
+  layer_name <- as.character(layer_name)[1]
+  url_template <- as.character(url_template)[1]
+
+  cat("fetch source:", source_key, " -> ", layer_name, "\n")
+
+  tile_features <- vector("list", nrow(tile_index))
+
+  for (i in seq_len(nrow(tile_index))) {
+    z <- tile_index$z[i]
+    x <- tile_index$x[i]
+    y <- tile_index$y[i]
+    tile_url <- make_tile_url(url_template, z, x, y)
+
+    tile_features[[i]] <- read_one_geojson_tile(
+      url = tile_url,
+      z = z,
+      x = x,
+      y = y,
+      source_key = source_key,
+      layer_name = layer_name
+    )
+
+    if (i %% 25 == 0 || i == nrow(tile_index)) {
+      cat("  processed:", i, "/", nrow(tile_index), "\n")
+    }
+
+    if (request_sleep_sec > 0) {
+      Sys.sleep(request_sleep_sec)
+    }
+  }
+
+  tile_features <- purrr::compact(tile_features)
+
+  if (length(tile_features) == 0) {
+    warning("取得できたタイル地物がありません: ", layer_name)
+    return(NULL)
+  }
+
+  landform_sf <- dplyr::bind_rows(tile_features)
+  landform_sf$source_feature_row <- seq_len(nrow(landform_sf))
+
+  landform_sf <- sf::st_transform(landform_sf, target_crs)
+
+  target_clip_area <- target_area_union |>
+    sf::st_transform(target_crs)
+
+  landform_sf <- clip_landform_bulk_if_requested(
+    x = landform_sf,
+    target_sf = target_clip_area,
+    layer_name = layer_name
+  )
+
+  landform_sf <- safe_filter_nonempty(landform_sf)
+
+  if (is.null(landform_sf) || nrow(landform_sf) == 0) {
+    warning("対象範囲内の地形分類地物が0件です: ", layer_name)
+    return(NULL)
+  }
+
+  landform_sf <- landform_sf |>
+    dplyr::mutate(gpkg_layer = layer_name)
+
+  landform_sf
+}
+
+gsi_landform_natural <- NULL
+gsi_landform_artificial <- NULL
+
+if (fetch_natural_landform) {
+  src <- gsi_landform_sources |>
+    dplyr::filter(source_key == "natural")
+
+  if (nrow(src) != 1) {
+    stop("natural の source 定義が1行ではありません。")
+  }
+
+  gsi_landform_natural <- fetch_one_landform_source(
+    source_key = src$source_key[1],
+    layer_name = src$layer_name[1],
+    url_template = src$url_template[1]
+  )
+}
+
+if (fetch_artificial_landform) {
+  src <- gsi_landform_sources |>
+    dplyr::filter(source_key == "artificial")
+
+  if (nrow(src) != 1) {
+    stop("artificial の source 定義が1行ではありません。")
+  }
+
+  gsi_landform_artificial <- fetch_one_landform_source(
+    source_key = src$source_key[1],
+    layer_name = src$layer_name[1],
+    url_template = src$url_template[1]
+  )
+}
+
+landform_fetch_summary <- tibble::tibble(
+  source_key = c("natural", "artificial"),
+  output_layer = c(output_layer_natural, output_layer_artificial),
+  zoom = gsi_landform_zoom,
+  tile_count_requested = nrow(tile_index),
+  feature_count = c(
+    ifelse(is.null(gsi_landform_natural), 0L, nrow(gsi_landform_natural)),
+    ifelse(is.null(gsi_landform_artificial), 0L, nrow(gsi_landform_artificial))
+  ),
+  clip_vector_in_fetch = clip_vector_in_fetch
+)
+
+print(landform_fetch_summary)
+print(fetch_log |> dplyr::count(source_key, status))
+```
+
+# c06_write-raw-gpkg-layers
+
+```{r c06_write-raw-gpkg-layers, eval=TRUE}
+write_records <- tibble::tibble(
+  layer = character(),
+  feature_count = integer(),
+  written = logical(),
+  gpkg_path = character()
+)
+
+if (save_target_area_layer) {
+  target_area_to_write <- target_area_union |>
+    sf::st_transform(target_crs) |>
+    dplyr::mutate(
+      layer_role = "target_area",
+      source_mode = target_area_mode
+    )
+
+  written <- write_sf_layer_to_gpkg(
+    target_area_to_write,
+    output_gpkg_path,
+    output_layer_target_area,
+    overwrite_existing_layers
+  )
+
+  write_records <- dplyr::bind_rows(
+    write_records,
+    tibble::tibble(
+      layer = output_layer_target_area,
+      feature_count = nrow(target_area_to_write),
+      written = written,
+      gpkg_path = output_gpkg_path
+    )
+  )
+}
+
+if (fetch_natural_landform) {
+  written <- write_sf_layer_to_gpkg(
+    gsi_landform_natural,
+    output_gpkg_path,
+    output_layer_natural,
+    overwrite_existing_layers
+  )
+
+  write_records <- dplyr::bind_rows(
+    write_records,
+    tibble::tibble(
+      layer = output_layer_natural,
+      feature_count = ifelse(is.null(gsi_landform_natural), 0L, nrow(gsi_landform_natural)),
+      written = written,
+      gpkg_path = output_gpkg_path
+    )
+  )
+}
+
+if (fetch_artificial_landform) {
+  written <- write_sf_layer_to_gpkg(
+    gsi_landform_artificial,
+    output_gpkg_path,
+    output_layer_artificial,
+    overwrite_existing_layers
+  )
+
+  write_records <- dplyr::bind_rows(
+    write_records,
+    tibble::tibble(
+      layer = output_layer_artificial,
+      feature_count = ifelse(is.null(gsi_landform_artificial), 0L, nrow(gsi_landform_artificial)),
+      written = written,
+      gpkg_path = output_gpkg_path
+    )
+  )
+}
+
+print(write_records)
+```
+
+# c07_add-landform-legend-fields
+
+```{r c07_add-landform-legend-fields, eval=TRUE}
+landform_code_lookup_grouped <- tibble::tribble(
+  ~landform_class, ~landform_group_for_model, ~code_list,
+  "山地斜面等", "slope_mountain", "10101,11201,11202,11203,11204,1010101",
+  "崖･段丘崖", "scarp_terrace_edge", "10202,10204,2010201",
+  "地すべり地形", "landslide", "10205,10206",
+  "台地・段丘", "upland_terrace", "10301,10302,10303,10304,10305,10306,10307,10308,10310,10312,10314,10508,2010101",
+  "山麓堆積地形", "footslope_deposit", "10401,10402,10403,10404,10406,10407,3010101",
+  "扇状地", "fan", "10501,10502,3020101",
+  "自然堤防", "natural_levee", "10503,3040101",
+  "天井川等", "raised_river", "10506,10507,10801",
+  "砂州・砂丘", "sand_bar_dune", "10504,10505,10512,3050101",
+  "凹地・浅い谷", "shallow_valley_depression", "10601,2010301",
+  "氾濫平野・海岸平野", "floodplain_coastal_plain", "10701,10702,10705,3030101",
+  "後背低地・湿地", "backmarsh_wetland", "10703,10804,3030201",
+  "旧河道", "abandoned_channel", "10704,3040201,3040202",
+  "落堀", "crevasse_splay_scour", "3040301",
+  "河川敷・浜", "riverbed_beach", "10802,10803,10807,10808",
+  "水部", "water", "10805,10806,10901,10903,5010201",
+  "旧水部", "former_water", "10904,5010301",
+  "切土地", "cut_land", "11001,11003,11009,11011,4010301",
+  "農耕平坦化地", "agricultural_leveling", "11002",
+  "干拓地", "reclaimed_land", "11008,4010101",
+  "盛土地・埋立地", "fill_reclaimed_land", "11004,11005,11006,11007,11014,4010201",
+  "改変工事中", "under_modification", "11010"
+)
+
+landform_code_lookup <- landform_code_lookup_grouped |>
+  tidyr::separate_rows(code_list, sep = "\\s*,\\s*") |>
+  dplyr::transmute(
+    code_chr = as.character(code_list),
+    landform_class = landform_class,
+    landform_group_for_model = landform_group_for_model
+  )
+
+add_landform_legend_fields <- function(gpkg_path, input_layer, output_layer) {
+  existing_layers <- sf::st_layers(gpkg_path)$name
+
+  if (!input_layer %in% existing_layers) {
+    stop(
+      "入力レイヤが見つかりません: ", input_layer,
+      "\n利用可能レイヤ: ", paste(existing_layers, collapse = ", ")
+    )
+  }
+
+  x <- sf::st_read(
+    gpkg_path,
+    layer = input_layer,
+    quiet = TRUE,
+    stringsAsFactors = FALSE
+  )
+
+  code_col <- names(x)[tolower(names(x)) == "code"][1]
+
+  if (is.na(code_col)) {
+    stop("code列が見つかりません: ", input_layer)
+  }
+
+  x_attr <- x |>
+    dplyr::mutate(code_chr = as.character(.data[[code_col]])) |>
+    dplyr::left_join(landform_code_lookup, by = "code_chr") |>
+    dplyr::mutate(
+      landform_class = dplyr::if_else(
+        is.na(landform_class),
+        paste0("未対応コード_", code_chr),
+        landform_class
+      ),
+      landform_group_for_model = dplyr::if_else(
+        is.na(landform_group_for_model),
+        "unknown",
+        landform_group_for_model
+      )
+    )
+
+  write_sf_layer_to_gpkg(
+    x_attr,
+    gpkg_path,
+    output_layer,
+    overwrite_layer = TRUE
+  )
+
+  summary_tbl <- x_attr |>
+    sf::st_drop_geometry() |>
+    dplyr::count(
+      landform_class,
+      landform_group_for_model,
+      name = "feature_count"
+    ) |>
+    dplyr::arrange(dplyr::desc(feature_count), landform_class)
+
+  message("出力: ", output_layer, " / ", gpkg_path)
+  print(summary_tbl)
+
+  invisible(summary_tbl)
+}
+
+summary_natural_labeled <- add_landform_legend_fields(
+  gpkg_path = output_gpkg_path,
+  input_layer = output_layer_natural,
+  output_layer = output_layer_natural_labeled
+)
+
+summary_artificial_labeled <- add_landform_legend_fields(
+  gpkg_path = output_gpkg_path,
+  input_layer = output_layer_artificial,
+  output_layer = output_layer_artificial_labeled
+)
+```
+
+# c08_pre-dissolve-sliver-filter
+
+```{r c08_pre-dissolve-sliver-filter, eval=TRUE}
+area_calculation_crs <- target_crs
+
+get_code_threshold <- function(code_chr, default_threshold) {
+  if (nrow(sliver_threshold_by_code) == 0) {
+    return(default_threshold)
+  }
+
+  hit <- sliver_threshold_by_code |>
+    dplyr::filter(code_chr == !!code_chr)
+
+  if (nrow(hit) == 0 || is.na(hit$min_area_m2[1])) {
+    return(default_threshold)
+  }
+
+  hit$min_area_m2[1]
+}
+
+safe_area_vector_m2 <- function(x) {
+  if (is.null(x) || nrow(x) == 0) {
+    return(numeric())
+  }
+
+  x_area <- tryCatch(
+    sf::st_transform(x, area_calculation_crs),
+    error = function(e) x
+  )
+
+  area_values <- rep(NA_real_, nrow(x_area))
+
+  for (i in seq_len(nrow(x_area))) {
+    area_values[i] <- tryCatch(
+      {
+        as.numeric(sf::st_area(sf::st_geometry(x_area[i, , drop = FALSE])))
+      },
+      error = function(e) NA_real_
+    )
+  }
+
+  area_values
+}
+
+add_sliver_fields <- function(x, default_min_area_m2, stage_name) {
+  if (is.null(x) || nrow(x) == 0) {
+    return(x)
+  }
+
+  if (!"code_chr" %in% names(x)) {
+    x$code_chr <- as.character(x$code)
+  }
+
+  x$area_m2 <- safe_area_vector_m2(x)
+
+  min_area_vec <- vapply(
+    x$code_chr,
+    get_code_threshold,
+    numeric(1),
+    default_threshold = default_min_area_m2
+  )
+
+  x$sliver_min_area_m2 <- min_area_vec
+  x$sliver_stage <- stage_name
+  x$sliver_candidate <- !is.na(x$area_m2) & x$area_m2 < x$sliver_min_area_m2
+
+  if (isTRUE(keep_area_na_features)) {
+    x$sliver_candidate[is.na(x$area_m2)] <- FALSE
+  } else {
+    x$sliver_candidate[is.na(x$area_m2)] <- TRUE
+  }
+
+  x
+}
+
+filter_sliver_layer <- function(
+  gpkg_path,
+  input_layer,
+  output_main_layer,
+  output_sliver_layer,
+  default_min_area_m2,
+  stage_name
+) {
+  x <- sf::st_read(
+    gpkg_path,
+    layer = input_layer,
+    quiet = TRUE,
+    stringsAsFactors = FALSE
+  )
+
+  x <- add_sliver_fields(
+    x,
+    default_min_area_m2 = default_min_area_m2,
+    stage_name = stage_name
+  )
+
+  sliver_x <- x |>
+    dplyr::filter(sliver_candidate)
+
+  if (isTRUE(exclude_sliver_candidates_from_main)) {
+    main_x <- x |>
+      dplyr::filter(!sliver_candidate)
+  } else {
+    main_x <- x
+  }
+
+  write_sf_layer_to_gpkg(
+    main_x,
+    gpkg_path,
+    output_main_layer,
+    overwrite_layer = TRUE
+  )
+
+  if (nrow(sliver_x) > 0) {
+    write_sf_layer_to_gpkg(
+      sliver_x,
+      gpkg_path,
+      output_sliver_layer,
+      overwrite_layer = TRUE
+    )
+  } else {
+    safe_delete_gpkg_layer(gpkg_path, output_sliver_layer)
+  }
+
+  summary_tbl <- tibble::tibble(
+    stage = stage_name,
+    input_layer = input_layer,
+    output_main_layer = output_main_layer,
+    output_sliver_layer = output_sliver_layer,
+    input_features = nrow(x),
+    main_features = nrow(main_x),
+    sliver_features = nrow(sliver_x),
+    min_area_m2_default = default_min_area_m2
+  )
+
+  print(summary_tbl)
+  invisible(summary_tbl)
+}
+
+if (isTRUE(apply_pre_dissolve_sliver_filter)) {
+  pre_sliver_summary_natural <- filter_sliver_layer(
+    gpkg_path = output_gpkg_path,
+    input_layer = output_layer_natural_labeled,
+    output_main_layer = output_layer_natural_sliver_filtered,
+    output_sliver_layer = output_layer_natural_sliver_candidates,
+    default_min_area_m2 = pre_dissolve_sliver_min_area_m2,
+    stage_name = "pre_dissolve"
+  )
+
+  pre_sliver_summary_artificial <- filter_sliver_layer(
+    gpkg_path = output_gpkg_path,
+    input_layer = output_layer_artificial_labeled,
+    output_main_layer = output_layer_artificial_sliver_filtered,
+    output_sliver_layer = output_layer_artificial_sliver_candidates,
+    default_min_area_m2 = pre_dissolve_sliver_min_area_m2,
+    stage_name = "pre_dissolve"
+  )
+} else {
+  output_layer_natural_sliver_filtered <- output_layer_natural_labeled
+  output_layer_artificial_sliver_filtered <- output_layer_artificial_labeled
+
+  pre_sliver_summary_natural <- tibble::tibble()
+  pre_sliver_summary_artificial <- tibble::tibble()
+}
+```
+
+# c09_dissolve-adjacent-same-code
+
+```{r c09_dissolve-adjacent-same-code, eval=TRUE}
+dissolve_skip_log <- tibble::tibble(
+  input_layer = character(),
+  code_chr = character(),
+  component_no = integer(),
+  source_row_in_layer = integer(),
+  source_feature_row = integer(),
+  reason = character()
+)
+
+add_dissolve_skip_log <- function(
+  input_layer,
+  code_chr,
+  component_no,
+  source_row_in_layer,
+  source_feature_row = NA_integer_,
+  reason
+) {
+  dissolve_skip_log <<- dplyr::bind_rows(
+    dissolve_skip_log,
+    tibble::tibble(
+      input_layer = input_layer,
+      code_chr = code_chr,
+      component_no = as.integer(component_no),
+      source_row_in_layer = as.integer(source_row_in_layer),
+      source_feature_row = as.integer(source_feature_row),
+      reason = reason
+    )
+  )
+
+  invisible(TRUE)
+}
+
+build_connected_components <- function(n, adjacency_list) {
+  visited <- rep(FALSE, n)
+  component <- rep(NA_integer_, n)
+  component_id <- 0L
+
+  for (i in seq_len(n)) {
+    if (visited[i]) {
+      next
+    }
+
+    component_id <- component_id + 1L
+    queue <- i
+    visited[i] <- TRUE
+    component[i] <- component_id
+
+    while (length(queue) > 0) {
+      current <- queue[1]
+      queue <- queue[-1]
+      neighbors <- adjacency_list[[current]]
+
+      if (length(neighbors) == 0) {
+        next
+      }
+
+      for (nb in neighbors) {
+        if (!visited[nb]) {
+          visited[nb] <- TRUE
+          component[nb] <- component_id
+          queue <- c(queue, nb)
+        }
+      }
+    }
+  }
+
+  component
+}
+
+make_adjacency <- function(x_code, input_layer, this_code) {
+  adjacency <- tryCatch(
+    {
+      if (dissolve_connection_method == "intersects") {
+        sf::st_intersects(x_code)
+      } else if (dissolve_connection_method == "touches") {
+        sf::st_touches(x_code)
+      } else {
+        stop("dissolve_connection_method が不正です: ", dissolve_connection_method)
+      }
+    },
+    error = function(e) {
+      warning(
+        "接続判定に失敗したため、このcodeは接続なしとして処理します: ",
+        input_layer,
+        " / code=",
+        this_code,
+        " / ",
+        conditionMessage(e)
+      )
+
+      vector("list", nrow(x_code)) |>
+        purrr::map(~integer())
+    }
+  )
+
+  adjacency <- lapply(
+    seq_along(adjacency),
+    function(i) setdiff(adjacency[[i]], i)
+  )
+
+  adjacency
+}
+
+first_existing_value <- function(x, field_name) {
+  if (!field_name %in% names(x)) {
+    return(NA_character_)
+  }
+
+  values <- as.character(x[[field_name]])
+  values <- values[!is.na(values) & values != ""]
+
+  if (length(values) == 0) {
+    return(NA_character_)
+  }
+
+  values[1]
+}
+
+try_union_indices <- function(x_part, idx) {
+  tryCatch(
+    {
+      suppressWarnings(
+        sf::st_union(sf::st_geometry(x_part[idx, , drop = FALSE]))
+      )
+    },
+    error = function(e) NULL
+  )
+}
+
+union_component_with_skip <- function(x_part, input_layer, this_code, this_component) {
+  if (nrow(x_part) == 1) {
+    return(list(
+      geometry = sf::st_geometry(x_part),
+      kept_index = 1L,
+      skipped_index = integer()
+    ))
+  }
+
+  all_idx <- seq_len(nrow(x_part))
+  union_all <- try_union_indices(x_part, all_idx)
+
+  if (!is.null(union_all)) {
+    return(list(
+      geometry = union_all,
+      kept_index = all_idx,
+      skipped_index = integer()
+    ))
+  }
+
+  area_values <- safe_area_vector_m2(x_part)
+  area_values[is.na(area_values)] <- Inf
+
+  remaining <- all_idx
+  skipped <- integer()
+  iteration <- 0L
+
+  repeat {
+    iteration <- iteration + 1L
+
+    if (length(remaining) == 0) {
+      return(list(geometry = NULL, kept_index = integer(), skipped_index = skipped))
+    }
+
+    union_try <- try_union_indices(x_part, remaining)
+
+    if (!is.null(union_try)) {
+      return(list(
+        geometry = union_try,
+        kept_index = remaining,
+        skipped_index = skipped
+      ))
+    }
+
+    if (length(remaining) == 1 || iteration > union_drop_max_features) {
+      for (idx in remaining) {
+        add_dissolve_skip_log(
+          input_layer = input_layer,
+          code_chr = this_code,
+          component_no = this_component,
+          source_row_in_layer = x_part$source_row_in_layer[idx],
+          source_feature_row = if ("source_feature_row" %in% names(x_part)) x_part$source_feature_row[idx] else NA_integer_,
+          reason = "union_failed_component_remainder"
+        )
+      }
+
+      return(list(geometry = NULL, kept_index = integer(), skipped_index = c(skipped, remaining)))
+    }
+
+    # 1地物だけ外して成功するかを、小面積順に試す。
+    candidate_order <- remaining[order(area_values[remaining])]
+    found_success <- FALSE
+
+    for (drop_idx in candidate_order) {
+      test_idx <- setdiff(remaining, drop_idx)
+
+      if (length(test_idx) == 0) {
+        next
+      }
+
+      union_test <- try_union_indices(x_part, test_idx)
+
+      if (!is.null(union_test)) {
+        add_dissolve_skip_log(
+          input_layer = input_layer,
+          code_chr = this_code,
+          component_no = this_component,
+          source_row_in_layer = x_part$source_row_in_layer[drop_idx],
+          source_feature_row = if ("source_feature_row" %in% names(x_part)) x_part$source_feature_row[drop_idx] else NA_integer_,
+          reason = "union_success_after_dropping_this_feature"
+        )
+
+        return(list(
+          geometry = union_test,
+          kept_index = test_idx,
+          skipped_index = c(skipped, drop_idx)
+        ))
+      }
+    }
+
+    # 単一除外で解決しない場合は、小面積地物を1つ落として再試行する。
+    drop_idx <- candidate_order[1]
+
+    add_dissolve_skip_log(
+      input_layer = input_layer,
+      code_chr = this_code,
+      component_no = this_component,
+      source_row_in_layer = x_part$source_row_in_layer[drop_idx],
+      source_feature_row = if ("source_feature_row" %in% names(x_part)) x_part$source_feature_row[drop_idx] else NA_integer_,
+      reason = "union_failed_greedy_drop_smallest"
+    )
+
+    skipped <- c(skipped, drop_idx)
+    remaining <- setdiff(remaining, drop_idx)
+  }
+}
+
+make_dissolved_row <- function(x_part, union_result, this_code, this_component) {
+  kept <- union_result$kept_index
+
+  if (length(kept) == 0 || is.null(union_result$geometry)) {
+    return(NULL)
+  }
+
+  x_kept <- x_part[kept, , drop = FALSE]
+
+  sf::st_sf(
+    code_chr = this_code,
+    landform_component_no = this_component,
+    landform_component_id = paste0(this_code, "_", this_component),
+    code = x_kept$code[1],
+    landform_class = first_existing_value(x_kept, "landform_class"),
+    landform_group_for_model = first_existing_value(x_kept, "landform_group_for_model"),
+    source_feature_count = nrow(x_kept),
+    skipped_feature_count = length(union_result$skipped_index),
+    geometry = union_result$geometry,
+    crs = sf::st_crs(x_kept)
+  )
+}
+
+dissolve_adjacent_same_code <- function(x, input_layer) {
+  if (!"code" %in% names(x)) {
+    stop("code列が見つかりません: ", input_layer)
+  }
+
+  if (isTRUE(make_valid_before_dissolve)) {
+    x <- safe_make_valid_by_feature(x, stage = "pre_dissolve_make_valid")
+  }
+
+  x <- safe_filter_nonempty(x)
+
+  if (nrow(x) == 0) {
+    return(x)
+  }
+
+  x$source_row_in_layer <- seq_len(nrow(x))
+  x$code_chr <- as.character(x$code)
+
+  if (dissolve_snap_buffer_m > 0) {
+    x <- tryCatch(
+      {
+        sf::st_geometry(x) <- sf::st_buffer(sf::st_geometry(x), dissolve_snap_buffer_m)
+        safe_make_valid_by_feature(x, stage = "snap_buffer_make_valid")
+      },
+      error = function(e) {
+        warning("dissolve_snap_buffer_m によるbufferに失敗したためbufferなしで続行します: ", conditionMessage(e))
+        x
+      }
+    )
+  }
+
+  code_values <- sort(unique(x$code_chr))
+  dissolved_list <- list()
+  out_i <- 0L
+
+  for (this_code in code_values) {
+    cat("dissolving code:", this_code, "\n")
+
+    x_code <- x[x$code_chr == this_code, , drop = FALSE]
+
+    if (nrow(x_code) == 0) {
+      next
+    }
+
+    adjacency <- make_adjacency(
+      x_code = x_code,
+      input_layer = input_layer,
+      this_code = this_code
+    )
+
+    component <- build_connected_components(
+      n = nrow(x_code),
+      adjacency_list = adjacency
+    )
+
+    x_code$landform_component_no <- component
+
+    component_values <- sort(unique(component))
+
+    for (this_component in component_values) {
+      x_part <- x_code[x_code$landform_component_no == this_component, , drop = FALSE]
+
+      union_result <- union_component_with_skip(
+        x_part = x_part,
+        input_layer = input_layer,
+        this_code = this_code,
+        this_component = this_component
+      )
+
+      out_one <- make_dissolved_row(
+        x_part = x_part,
+        union_result = union_result,
+        this_code = this_code,
+        this_component = this_component
+      )
+
+      if (is.null(out_one)) {
+        next
+      }
+
+      out_i <- out_i + 1L
+      dissolved_list[[out_i]] <- out_one
+    }
+  }
+
+  if (length(dissolved_list) == 0) {
+    return(x[0, , drop = FALSE])
+  }
+
+  dissolved <- dplyr::bind_rows(dissolved_list)
+
+  if (dissolve_snap_buffer_m > 0) {
+    dissolved <- tryCatch(
+      {
+        sf::st_geometry(dissolved) <- sf::st_buffer(sf::st_geometry(dissolved), -dissolve_snap_buffer_m)
+        safe_make_valid_by_feature(dissolved, stage = "snap_buffer_restore_make_valid")
+      },
+      error = function(e) {
+        warning("負bufferによる復元に失敗しました。buffer後geometryのまま保存します: ", conditionMessage(e))
+        dissolved
+      }
+    )
+  }
+
+  dissolved <- add_sliver_fields(
+    dissolved,
+    default_min_area_m2 = post_dissolve_sliver_min_area_m2,
+    stage_name = "post_dissolve_measurement"
+  )
+
+  dissolved |>
+    dplyr::arrange(code_chr, landform_component_no, landform_component_id)
+}
+
+dissolve_landform_layer_to_gpkg <- function(gpkg_path, input_layer, output_layer) {
+  existing_layers <- sf::st_layers(gpkg_path)$name
+
+  if (!input_layer %in% existing_layers) {
+    stop(
+      "入力レイヤが見つかりません: ", input_layer,
+      "\n利用可能レイヤ: ", paste(existing_layers, collapse = ", ")
+    )
+  }
+
+  x <- sf::st_read(
+    gpkg_path,
+    layer = input_layer,
+    quiet = TRUE,
+    stringsAsFactors = FALSE
+  )
+
+  cat("input layer:", input_layer, "\n")
+  cat("input features:", nrow(x), "\n")
+
+  x_dissolved <- dissolve_adjacent_same_code(
+    x = x,
+    input_layer = input_layer
+  )
+
+  cat("output layer:", output_layer, "\n")
+  cat("output features:", nrow(x_dissolved), "\n")
+
+  write_sf_layer_to_gpkg(
+    x_dissolved,
+    gpkg_path,
+    output_layer,
+    overwrite_layer = TRUE
+  )
+
+  summary_tbl <- tibble::tibble(
+    input_layer = input_layer,
+    output_layer = output_layer,
+    input_features = nrow(x),
+    output_features = nrow(x_dissolved),
+    reduction_features = nrow(x) - nrow(x_dissolved),
+    output_gpkg_path = gpkg_path
+  )
+
+  print(summary_tbl)
+  invisible(summary_tbl)
+}
+
+dissolve_summary_natural <- dissolve_landform_layer_to_gpkg(
+  gpkg_path = output_gpkg_path,
+  input_layer = output_layer_natural_sliver_filtered,
+  output_layer = output_layer_natural_dissolved
+)
+
+dissolve_summary_artificial <- dissolve_landform_layer_to_gpkg(
+  gpkg_path = output_gpkg_path,
+  input_layer = output_layer_artificial_sliver_filtered,
+  output_layer = output_layer_artificial_dissolved
+)
+
+landform_dissolve_summary <- dplyr::bind_rows(
+  dissolve_summary_natural,
+  dissolve_summary_artificial
+)
+
+dissolve_skip_csv <- file.path(
+  dirname(output_gpkg_path),
+  "gsi_landform_dissolve_skipped_features.csv"
+)
+
+if (nrow(dissolve_skip_log) > 0) {
+  readr::write_csv(dissolve_skip_log, dissolve_skip_csv)
+  cat("dissolve skipped features CSV:", dissolve_skip_csv, "\n")
+  print(dissolve_skip_log)
+} else {
+  cat("dissolve skipped features: 0\n")
+}
+```
+
+# c10_post-dissolve-sliver-filter
+
+```{r c10_post-dissolve-sliver-filter, eval=TRUE}
+if (isTRUE(apply_post_dissolve_sliver_filter)) {
+  post_sliver_summary_natural <- filter_sliver_layer(
+    gpkg_path = output_gpkg_path,
+    input_layer = output_layer_natural_dissolved,
+    output_main_layer = output_layer_natural_dissolved_clean,
+    output_sliver_layer = output_layer_natural_dissolved_sliver_candidates,
+    default_min_area_m2 = post_dissolve_sliver_min_area_m2,
+    stage_name = "post_dissolve"
+  )
+
+  post_sliver_summary_artificial <- filter_sliver_layer(
+    gpkg_path = output_gpkg_path,
+    input_layer = output_layer_artificial_dissolved,
+    output_main_layer = output_layer_artificial_dissolved_clean,
+    output_sliver_layer = output_layer_artificial_dissolved_sliver_candidates,
+    default_min_area_m2 = post_dissolve_sliver_min_area_m2,
+    stage_name = "post_dissolve"
+  )
+} else {
+  output_layer_natural_dissolved_clean <- output_layer_natural_dissolved
+  output_layer_artificial_dissolved_clean <- output_layer_artificial_dissolved
+
+  post_sliver_summary_natural <- tibble::tibble()
+  post_sliver_summary_artificial <- tibble::tibble()
+}
+```
+
+# c11_rasterize-code-layers
+
+```{r c11_rasterize-code-layers, eval=TRUE}
+crs_to_terra_string <- function(crs_obj) {
+  if (!is.na(crs_obj$epsg)) {
+    return(paste0("EPSG:", crs_obj$epsg))
+  }
+
+  if (!is.na(crs_obj$wkt)) {
+    return(crs_obj$wkt)
+  }
+
+  crs_obj$input
+}
+
+make_raster_template <- function(target_sf, cell_size_m) {
+  if (isTRUE(sf::st_is_longlat(target_sf))) {
+    stop(
+      "ラスタ化にはメートル系CRSが必要です。対象範囲CRSが経緯度です。",
+      " target_area を平面直角座標系等に変換してから実行してください。"
+    )
+  }
+
+  terra::rast(
+    terra::ext(terra::vect(target_sf)),
+    resolution = cell_size_m,
+    crs = crs_to_terra_string(sf::st_crs(target_sf))
+  )
+}
+
+rasterize_code_layer <- function(gpkg_path, input_layer, output_tif) {
+  existing_layers <- sf::st_layers(gpkg_path)$name
+
+  if (!input_layer %in% existing_layers) {
+    warning("ラスタ化入力レイヤが見つからないためスキップします: ", input_layer)
+    return(NULL)
+  }
+
+  x <- sf::st_read(
+    gpkg_path,
+    layer = input_layer,
+    quiet = TRUE,
+    stringsAsFactors = FALSE
+  )
+
+  if (!"code" %in% names(x)) {
+    stop("code列が見つかりません: ", input_layer)
+  }
+
+  x <- x |>
+    dplyr::mutate(
+      code_int = as.integer(as.character(code)),
+      code_chr = as.character(code)
+    )
+
+  if (any(is.na(x$code_int))) {
+    warning("整数化できないcodeがあります。NAとしてラスタ化されます: ", input_layer)
+  }
+
+  target_for_raster <- target_area_union |>
+    sf::st_transform(target_crs)
+
+  template <- make_raster_template(
+    target_for_raster,
+    cell_size_m = raster_cell_size_m
+  )
+
+  x <- sf::st_transform(x, target_crs)
+
+  r <- terra::rasterize(
+    terra::vect(x),
+    template,
+    field = "code_int",
+    touches = rasterize_touches,
+    background = NA
+  )
+
+  names(r) <- paste0(input_layer, "_code")
+
+  if (isTRUE(raster_mask_to_target_area)) {
+    r <- terra::mask(
+      r,
+      terra::vect(target_for_raster)
+    )
+  }
+
+  safe_dir_create(dirname(output_tif))
+
+  terra::writeRaster(
+    r,
+    filename = output_tif,
+    overwrite = TRUE,
+    datatype = raster_datatype,
+    gdal = raster_gdal_options
+  )
+
+  cat("code raster written:", output_tif, "\n")
+
+  tibble::tibble(
+    input_layer = input_layer,
+    output_tif = output_tif,
+    nrow = terra::nrow(r),
+    ncol = terra::ncol(r),
+    nlyr = terra::nlyr(r),
+    res_x = terra::res(r)[1],
+    res_y = terra::res(r)[2]
+  )
+}
+
+raster_summary_natural <- NULL
+raster_summary_artificial <- NULL
+
+if (isTRUE(create_code_rasters)) {
+  raster_summary_natural <- rasterize_code_layer(
+    gpkg_path = output_gpkg_path,
+    input_layer = output_layer_natural_dissolved_clean,
+    output_tif = raster_natural_code_path
+  )
+
+  raster_summary_artificial <- rasterize_code_layer(
+    gpkg_path = output_gpkg_path,
+    input_layer = output_layer_artificial_dissolved_clean,
+    output_tif = raster_artificial_code_path
+  )
+
+  readr::write_csv(
+    landform_code_lookup,
+    raster_code_lookup_csv
+  )
+
+  cat("raster code lookup CSV:", raster_code_lookup_csv, "\n")
+}
+
+landform_raster_summary <- dplyr::bind_rows(
+  raster_summary_natural,
+  raster_summary_artificial
+)
+
+print(landform_raster_summary)
+```
+
+# c12_write-summary
+
+```{r c12_write-summary, eval=TRUE}
+output_layers_after_write <- tryCatch(
+  sf::st_layers(output_gpkg_path)$name,
+  error = function(e) character()
+)
+
+summary_table <- tibble::tibble(
+  item = c(
+    "output_gpkg_path",
+    "target_area_mode",
+    "target_area_layer",
+    "gsi_landform_zoom",
+    "tile_count_requested",
+    "clip_vector_in_fetch",
+    "pre_dissolve_sliver_min_area_m2",
+    "post_dissolve_sliver_min_area_m2",
+    "dissolve_connection_method",
+    "create_code_rasters",
+    "raster_cell_size_m",
+    "natural_code_raster",
+    "artificial_code_raster"
+  ),
+  value = c(
+    output_gpkg_path,
+    target_area_mode,
+    target_area_layer,
+    as.character(gsi_landform_zoom),
+    as.character(nrow(tile_index)),
+    as.character(clip_vector_in_fetch),
+    as.character(pre_dissolve_sliver_min_area_m2),
+    as.character(post_dissolve_sliver_min_area_m2),
+    dissolve_connection_method,
+    as.character(create_code_rasters),
+    as.character(raster_cell_size_m),
+    raster_natural_code_path,
+    raster_artificial_code_path
+  )
+)
+
+safe_dir_create(dirname(summary_csv_path))
+readr::write_csv(summary_table, summary_csv_path)
+
+cat("summary CSV:", summary_csv_path, "\n")
+cat("output GPKG:", output_gpkg_path, "\n")
+cat("GeoPackage layers after processing:\n")
+print(output_layers_after_write)
+print(summary_table)
+```
+
+# c13_chunk-list
+
+```{r c13_chunk-list, eval=TRUE}
+chunk_list <- tibble::tribble(
+  ~chunk, ~purpose,
+  "c01_setup", "必要パッケージと共通関数を準備する。",
+  "c02_parameters", "対象範囲・取得条件・スリバー閾値・ラスタ化条件を指定する。",
+  "c03_read-target-area", "対象範囲を読み込み、EPSG:4326 bboxを作成する。",
+  "c04_build-tile-index", "対象範囲を含むXYZタイル番号を計算する。",
+  "c05_fetch-landform-tiles", "地形分類ベクトルタイルを取得し、rawレイヤを作成する。",
+  "c06_write-raw-gpkg-layers", "raw地形分類レイヤをGPKGに保存する。",
+  "c07_add-landform-legend-fields", "codeに凡例名とモデル用分類を付与する。",
+  "c08_pre-dissolve-sliver-filter", "dissolve前に小面積スリバー候補を別レイヤへ退避する。",
+  "c09_dissolve-adjacent-same-code", "同一codeで隣接するポリゴンをst_unionでdissolveする。",
+  "c10_post-dissolve-sliver-filter", "dissolve後の小面積スリバー候補を再度別レイヤへ退避する。",
+  "c11_rasterize-code-layers", "dissolve後cleanレイヤをcode値のカテゴリGeoTIFFに変換する。",
+  "c12_write-summary", "処理結果サマリを書き出す。",
+  "c13_chunk-list", "chunk一覧を表示する。"
+)
+
+print(chunk_list)
+```
