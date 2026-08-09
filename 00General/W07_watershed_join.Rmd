@@ -1,0 +1,1298 @@
+---
+title: "国土数値情報 W07 流域メッシュ属性付与"
+output: html_document
+---
+
+このRmdは、`13Tokyo_chronology_gsi_landform.csv` の `Lon` / `Lat` から100m地域メッシュコードを算出し、国土交通省・国土数値情報「流域メッシュ（W07、2009年度）」の属性を付与します。
+
+W07は100m（3次メッシュ1/10細分）単位で整備され、1次メッシュごとに配布されています。そのため、地点をポリゴンに空間結合するのではなく、**地点座標から100mメッシュコードを計算し、W07の細分メッシュコードにキー結合**します。必要な1次メッシュのW07ファイルだけを取得します。
+
+入力CSVと出力CSVは初期設定では同じファイルです。実行前のCSVはタイムスタンプ付きで自動バックアップします。
+
+```{r w07_watershed_join, message=TRUE, warning=TRUE}
+# ============================================================
+# 0. USER SETTINGS
+#    通常変更する場合はこのセクション
+# ============================================================
+
+# 地形分類付与済みCSV
+INPUT_CSV <- "13Tokyo_chronology_gsi_landform.csv"
+
+# W07列を追加して保存するCSV
+# 初期値はINPUT_CSVと同一。既存ファイルは実行前にバックアップする。
+OUTPUT_CSV <- "13Tokyo_chronology_gsi_landform.csv"
+
+# 入力CSV内の列名
+ID_COL  <- "JASID"
+LON_COL <- "Lon"
+LAT_COL <- "Lat"
+
+# W07キャッシュ
+W07_CACHE_DIR <- "W07_cache"
+USE_CACHE <- TRUE
+AUTO_DOWNLOAD <- TRUE
+
+# 国土数値情報 W07
+W07_YEAR <- 2009L
+W07_DATASET_ID <- "W07"
+W07_DATA_PAGE <- "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-W07.html"
+
+# 国土数値情報で一般に用いられているW07 GML ZIPの配置先。
+# サーバ側仕様変更などで自動取得できない場合は、
+# W07_DATA_PAGEから必要なZIPを手動取得してW07_CACHE_DIRへ置けばよい。
+# W07の実データは dataset/year サブディレクトリに配置されている。
+# 例:
+# https://nlftp.mlit.go.jp/ksj/gml/data/W07/W07-09/W07-09_5338-jgd_GML.zip
+W07_DOWNLOAD_BASE <- "https://nlftp.mlit.go.jp/ksj/gml/data/W07/W07-09"
+
+# 10MB超のZIPもあるため、既定60秒では足りない環境に備える。
+DOWNLOAD_TIMEOUT_SEC <- 300
+
+# 監査出力
+W07_DOWNLOAD_AUDIT_CSV <- "W07_download_audit.csv"
+W07_JOIN_SUMMARY_CSV <- "W07_join_summary.csv"
+
+# 既にW07列がある場合は、再計算した値で置換する
+REPLACE_EXISTING_W07_COLUMNS <- TRUE
+
+
+# ============================================================
+# 1. PACKAGE CHECK / DIRECTORIES
+# ============================================================
+
+required_packages <- c(
+  "readr",
+  "dplyr",
+  "tibble",
+  "sf"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "必要なRパッケージがありません: ",
+    paste(missing_packages, collapse = ", "),
+    "\n先に以下を実行してください:\n",
+    "install.packages(c(",
+    paste(sprintf('"%s"', missing_packages), collapse = ", "),
+    "))"
+  )
+}
+
+if (!file.exists(INPUT_CSV)) {
+  stop("入力CSVが見つかりません: ", INPUT_CSV)
+}
+
+dir.create(
+  W07_CACHE_DIR,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+cat("Input CSV : ", INPUT_CSV, "\n", sep = "")
+cat("Output CSV: ", OUTPUT_CSV, "\n", sep = "")
+cat("W07 cache : ", W07_CACHE_DIR, "\n\n", sep = "")
+
+
+# ============================================================
+# 2. READ INPUT
+#    元CSVの文字列表現をできるだけ保持するため全列characterで読む
+# ============================================================
+
+input_data <- readr::read_csv(
+  INPUT_CSV,
+  col_types = readr::cols(
+    .default = readr::col_character()
+  ),
+  locale = readr::locale(
+    encoding = "UTF-8"
+  ),
+  show_col_types = FALSE
+)
+
+required_input_cols <- c(
+  LON_COL,
+  LAT_COL
+)
+
+missing_input_cols <- setdiff(
+  required_input_cols,
+  names(input_data)
+)
+
+if (length(missing_input_cols) > 0) {
+  stop(
+    "入力CSVに必要な座標列がありません: ",
+    paste(
+      missing_input_cols,
+      collapse = ", "
+    )
+  )
+}
+
+if (!ID_COL %in% names(input_data)) {
+  warning(
+    "ID_COL = '",
+    ID_COL,
+    "' が見つからないため、内部行番号を地点IDとして使用します。"
+  )
+
+  input_data[[ID_COL]] <- as.character(
+    seq_len(nrow(input_data))
+  )
+}
+
+
+# ============================================================
+# 3. 100m STANDARD REGIONAL MESH CODE
+#
+# 1次メッシュ:
+#   緯度側 = floor(lat * 1.5)
+#   経度側 = floor(lon) - 100
+#
+# 2次: 1次メッシュを8×8
+# 3次: 2次メッシュを10×10
+# 1/10細分: 3次メッシュを10×10
+#
+# 出力:
+#   10桁の100mメッシュコード
+# ============================================================
+
+lonlat_to_mesh100 <- function(
+  lon,
+  lat
+) {
+  lon <- as.numeric(lon)
+  lat <- as.numeric(lat)
+
+  valid <-
+    is.finite(lon) &
+    is.finite(lat) &
+    lon >= 100 &
+    lon < 180 &
+    lat >= 0 &
+    lat < 66.6666666667
+
+  result <- rep(
+    NA_character_,
+    length(lon)
+  )
+
+  if (!any(valid)) {
+    return(result)
+  }
+
+  x <- lon[valid]
+  y <- lat[valid]
+
+  # latitude
+  lat_scaled <- y * 1.5
+  p <- floor(lat_scaled)
+
+  lat_rem1 <- (lat_scaled - p) * 8
+  r <- floor(lat_rem1)
+
+  lat_rem2 <- (lat_rem1 - r) * 10
+  t <- floor(lat_rem2)
+
+  lat_rem3 <- (lat_rem2 - t) * 10
+  v <- floor(lat_rem3)
+
+  # longitude
+  lon_deg <- floor(x)
+  q <- lon_deg - 100
+
+  lon_rem1 <- (x - lon_deg) * 8
+  s <- floor(lon_rem1)
+
+  lon_rem2 <- (lon_rem1 - s) * 10
+  u <- floor(lon_rem2)
+
+  lon_rem3 <- (lon_rem2 - u) * 10
+  w <- floor(lon_rem3)
+
+  # floating-point roundoff対策
+  r <- pmin(pmax(r, 0), 7)
+  s <- pmin(pmax(s, 0), 7)
+  t <- pmin(pmax(t, 0), 9)
+  u <- pmin(pmax(u, 0), 9)
+  v <- pmin(pmax(v, 0), 9)
+  w <- pmin(pmax(w, 0), 9)
+
+  result[valid] <- sprintf(
+    "%02d%02d%d%d%d%d%d%d",
+    as.integer(p),
+    as.integer(q),
+    as.integer(r),
+    as.integer(s),
+    as.integer(t),
+    as.integer(u),
+    as.integer(v),
+    as.integer(w)
+  )
+
+  result
+}
+
+
+input_work <- input_data |>
+  dplyr::mutate(
+    .row_id = dplyr::row_number(),
+    .place_id = as.character(
+      .data[[ID_COL]]
+    ),
+    .lon = suppressWarnings(
+      as.numeric(
+        .data[[LON_COL]]
+      )
+    ),
+    .lat = suppressWarnings(
+      as.numeric(
+        .data[[LAT_COL]]
+      )
+    ),
+    .coordinate_valid =
+      is.finite(.lon) &
+      is.finite(.lat) &
+      dplyr::between(
+        .lon,
+        -180,
+        180
+      ) &
+      dplyr::between(
+        .lat,
+        -90,
+        90
+      ),
+    watershed_mesh_code_100m =
+      lonlat_to_mesh100(
+        .lon,
+        .lat
+      ),
+    watershed_first_mesh_code =
+      dplyr::if_else(
+        !is.na(
+          watershed_mesh_code_100m
+        ),
+        substr(
+          watershed_mesh_code_100m,
+          1,
+          4
+        ),
+        NA_character_
+      )
+  )
+
+needed_first_meshes <- input_work |>
+  dplyr::filter(
+    !is.na(
+      watershed_first_mesh_code
+    )
+  ) |>
+  dplyr::distinct(
+    watershed_first_mesh_code
+  ) |>
+  dplyr::arrange(
+    watershed_first_mesh_code
+  ) |>
+  dplyr::pull(
+    watershed_first_mesh_code
+  )
+
+needed_mesh100 <- unique(
+  stats::na.omit(
+    input_work$watershed_mesh_code_100m
+  )
+)
+
+cat(
+  "Input rows             : ",
+  nrow(input_work),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Valid coordinate rows  : ",
+  sum(input_work$.coordinate_valid),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "100m mesh-coded rows   : ",
+  sum(
+    !is.na(
+      input_work$watershed_mesh_code_100m
+    )
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Required 1st meshes    : ",
+  paste(
+    needed_first_meshes,
+    collapse = ", "
+  ),
+  "\n\n",
+  sep = ""
+)
+
+
+# ============================================================
+# 4. W07 ZIP DOWNLOAD / EXTRACTION
+# ============================================================
+
+options(
+  timeout = max(
+    getOption("timeout"),
+    DOWNLOAD_TIMEOUT_SEC
+  )
+)
+
+
+w07_filename <- function(
+  first_mesh
+) {
+  sprintf(
+    "W07-09_%s-jgd_GML.zip",
+    first_mesh
+  )
+}
+
+
+w07_download_url <- function(
+  first_mesh
+) {
+  paste0(
+    W07_DOWNLOAD_BASE,
+    "/",
+    w07_filename(
+      first_mesh
+    )
+  )
+}
+
+
+prepare_w07_file <- function(
+  first_mesh
+) {
+  zip_name <- w07_filename(
+    first_mesh
+  )
+
+  zip_path <- file.path(
+    W07_CACHE_DIR,
+    zip_name
+  )
+
+  url <- w07_download_url(
+    first_mesh
+  )
+
+  status <- "not_attempted"
+  message_text <- NA_character_
+
+  zip_ok <-
+    file.exists(zip_path) &&
+    isTRUE(
+      file.info(zip_path)$size > 0
+    )
+
+  if (
+    !zip_ok &&
+    isTRUE(AUTO_DOWNLOAD)
+  ) {
+    cat(
+      "Downloading W07 first mesh ",
+      first_mesh,
+      " ...\n",
+      sep = ""
+    )
+
+    download_status <- tryCatch(
+      suppressWarnings(
+        utils::download.file(
+          url = url,
+          destfile = zip_path,
+          mode = "wb",
+          method = "libcurl",
+          quiet = FALSE
+        )
+      ),
+      error = function(e) {
+        message_text <<- conditionMessage(e)
+        NA_integer_
+      }
+    )
+
+    zip_ok <-
+      isTRUE(
+        download_status == 0L
+      ) &&
+      file.exists(zip_path) &&
+      isTRUE(
+        file.info(zip_path)$size > 0
+      )
+
+    status <- if (zip_ok) {
+      "downloaded"
+    } else {
+      "download_failed"
+    }
+  } else if (zip_ok) {
+    status <- "cached"
+  }
+
+  if (!zip_ok) {
+    stop(
+      "\nW07 ZIPを取得できませんでした。\n",
+      "1次メッシュ: ",
+      first_mesh,
+      "\n期待するファイル名: ",
+      zip_name,
+      "\n自動取得URL: ",
+      url,
+      "\n\n国土数値情報の公式ページから手動取得し、\n",
+      W07_CACHE_DIR,
+      " に保存して再実行してください:\n",
+      W07_DATA_PAGE,
+      if (!is.na(message_text)) {
+        paste0(
+          "\nDownload message: ",
+          message_text
+        )
+      } else {
+        ""
+      }
+    )
+  }
+
+  extract_dir <- file.path(
+    W07_CACHE_DIR,
+    paste0(
+      "W07_",
+      first_mesh
+    )
+  )
+
+  dir.create(
+    extract_dir,
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+
+  existing_files <- list.files(
+    extract_dir,
+    recursive = TRUE,
+    full.names = TRUE
+  )
+
+  spatial_candidates <- existing_files[
+    grepl(
+      "\\.(shp|gml|xml)$",
+      existing_files,
+      ignore.case = TRUE
+    )
+  ]
+
+  if (
+    length(spatial_candidates) == 0 ||
+    !isTRUE(USE_CACHE)
+  ) {
+    utils::unzip(
+      zip_path,
+      exdir = extract_dir
+    )
+
+    existing_files <- list.files(
+      extract_dir,
+      recursive = TRUE,
+      full.names = TRUE
+    )
+
+    spatial_candidates <- existing_files[
+      grepl(
+        "\\.(shp|gml|xml)$",
+        existing_files,
+        ignore.case = TRUE
+      )
+    ]
+  }
+
+  if (length(spatial_candidates) == 0) {
+    stop(
+      "ZIPを解凍しましたが、SHP/GML/XMLが見つかりません: ",
+      zip_path
+    )
+  }
+
+  list(
+    first_mesh = first_mesh,
+    zip_name = zip_name,
+    zip_path = zip_path,
+    url = url,
+    download_status = status,
+    extract_dir = extract_dir,
+    candidate_files =
+      spatial_candidates
+  )
+}
+
+
+# ============================================================
+# 5. W07 ATTRIBUTE FIELD DETECTION
+#
+# SHPでは公式属性名 W07_001 ... W07_006 を優先。
+# GMLをGDAL経由で読む際の名称差にも候補名で対応する。
+# ============================================================
+
+normalize_name <- function(x) {
+  tolower(
+    gsub(
+      "[^a-z0-9]",
+      "",
+      x
+    )
+  )
+}
+
+
+find_field <- function(
+  nms,
+  exact_candidates = character(),
+  regex_candidates = character()
+) {
+  nms_norm <- normalize_name(nms)
+
+  exact_norm <- normalize_name(
+    exact_candidates
+  )
+
+  hit_exact <- match(
+    exact_norm,
+    nms_norm
+  )
+
+  hit_exact <- hit_exact[
+    !is.na(hit_exact)
+  ]
+
+  if (length(hit_exact) > 0) {
+    return(
+      nms[
+        hit_exact[1]
+      ]
+    )
+  }
+
+  for (
+    pattern
+    in regex_candidates
+  ) {
+    hit <- grep(
+      pattern,
+      nms_norm,
+      perl = TRUE
+    )
+
+    if (length(hit) > 0) {
+      return(
+        nms[
+          hit[1]
+        ]
+      )
+    }
+  }
+
+  NA_character_
+}
+
+
+detect_w07_fields <- function(nms) {
+  list(
+    mesh_code = find_field(
+      nms,
+      exact_candidates = c(
+        "W07_001",
+        "meshCode",
+        "mesh_code",
+        "subdividedMeshCode",
+        "subdivisionMeshCode"
+      ),
+      regex_candidates = c(
+        "mesh.*code"
+      )
+    ),
+    watersystem_code = find_field(
+      nms,
+      exact_candidates = c(
+        "W07_002",
+        "waterSystemCode",
+        "watersystemcode",
+        "riverSystemCode",
+        "riversystemcode"
+      ),
+      regex_candidates = c(
+        "(water|river).*system.*code"
+      )
+    ),
+    river_code = find_field(
+      nms,
+      exact_candidates = c(
+        "W07_003",
+        "riverCode",
+        "rivercode"
+      ),
+      regex_candidates = c(
+        "^river.*code$"
+      )
+    ),
+    watersystem_name = find_field(
+      nms,
+      exact_candidates = c(
+        "W07_004",
+        "waterSystemName",
+        "watersystemname",
+        "riverSystemName",
+        "riversystemname"
+      ),
+      regex_candidates = c(
+        "(water|river).*system.*name"
+      )
+    ),
+    river_name = find_field(
+      nms,
+      exact_candidates = c(
+        "W07_005",
+        "riverName",
+        "rivername"
+      ),
+      regex_candidates = c(
+        "^river.*name$"
+      )
+    ),
+    unit_basin_code = find_field(
+      nms,
+      exact_candidates = c(
+        "W07_006",
+        "unitBasinCode",
+        "unitbasincode",
+        "basinUnitCode",
+        "basinunitcode"
+      ),
+      regex_candidates = c(
+        "unit.*basin.*code",
+        "basin.*unit.*code"
+      )
+    )
+  )
+}
+
+
+integer_like_to_character <- function(x) {
+  if (inherits(x, "integer64")) {
+    return(
+      as.character(x)
+    )
+  }
+
+  if (is.numeric(x)) {
+    out <- rep(
+      NA_character_,
+      length(x)
+    )
+
+    ok <- is.finite(x)
+
+    out[ok] <- sprintf(
+      "%.0f",
+      x[ok]
+    )
+
+    return(out)
+  }
+
+  trimws(
+    as.character(x)
+  )
+}
+
+
+# ============================================================
+# 6. READ ONE W07 FIRST-MESH FILE
+#
+# ZIP内に複数XML等がある場合があるため、
+# sf::st_read()で読め、W07属性を検出できるファイルを選ぶ。
+# ============================================================
+
+read_one_w07_first_mesh <- function(
+  prepared,
+  needed_codes
+) {
+  candidate_files <- prepared$candidate_files
+
+  # .shp を最優先、その後 .gml、.xml
+  extension_rank <- dplyr::case_when(
+    grepl(
+      "\\.shp$",
+      candidate_files,
+      ignore.case = TRUE
+    ) ~ 1L,
+    grepl(
+      "\\.gml$",
+      candidate_files,
+      ignore.case = TRUE
+    ) ~ 2L,
+    TRUE ~ 3L
+  )
+
+  candidate_files <- candidate_files[
+    order(extension_rank)
+  ]
+
+  selected <- NULL
+  selected_file <- NA_character_
+  selected_fields <- NULL
+
+  for (
+    candidate
+    in candidate_files
+  ) {
+    x <- tryCatch(
+      suppressWarnings(
+        sf::st_read(
+          candidate,
+          quiet = TRUE,
+          stringsAsFactors = FALSE
+        )
+      ),
+      error = function(e) {
+        NULL
+      }
+    )
+
+    if (
+      is.null(x) ||
+      nrow(x) == 0
+    ) {
+      next
+    }
+
+    field_map <- detect_w07_fields(
+      names(x)
+    )
+
+    required_detected <- vapply(
+      field_map,
+      function(z) {
+        !is.na(z)
+      },
+      logical(1)
+    )
+
+    if (all(required_detected)) {
+      selected <- x
+      selected_file <- candidate
+      selected_fields <- field_map
+      break
+    }
+  }
+
+  if (is.null(selected)) {
+    stop(
+      "\nW07属性を読めるSHP/GML/XMLを検出できませんでした。\n",
+      "1次メッシュ: ",
+      prepared$first_mesh,
+      "\n候補ファイル:\n",
+      paste(
+        candidate_files,
+        collapse = "\n"
+      ),
+      "\n\n必要属性は W07_001 ～ W07_006 です。"
+    )
+  }
+
+  attrs <- sf::st_drop_geometry(
+    selected
+  )
+
+  out <- tibble::tibble(
+    watershed_mesh_code_100m =
+      integer_like_to_character(
+        attrs[[selected_fields$mesh_code]]
+      ),
+    watersystem_code =
+      integer_like_to_character(
+        attrs[[selected_fields$watersystem_code]]
+      ),
+    river_code =
+      integer_like_to_character(
+        attrs[[selected_fields$river_code]]
+      ),
+    watersystem_name =
+      as.character(
+        attrs[[selected_fields$watersystem_name]]
+      ),
+    river_name =
+      as.character(
+        attrs[[selected_fields$river_name]]
+      ),
+    unit_basin_code =
+      integer_like_to_character(
+        attrs[[selected_fields$unit_basin_code]]
+      ),
+    w07_source_first_mesh =
+      prepared$first_mesh,
+    w07_source_file =
+      basename(selected_file)
+  ) |>
+    dplyr::filter(
+      watershed_mesh_code_100m %in%
+        needed_codes
+    ) |>
+    dplyr::distinct(
+      watershed_mesh_code_100m,
+      .keep_all = TRUE
+    )
+
+  rm(
+    selected,
+    attrs
+  )
+
+  invisible(
+    gc()
+  )
+
+  out
+}
+
+
+# ============================================================
+# 7. DOWNLOAD / READ ONLY REQUIRED FIRST MESHES
+# ============================================================
+
+prepared_list <- lapply(
+  needed_first_meshes,
+  prepare_w07_file
+)
+
+download_audit <- dplyr::bind_rows(
+  lapply(
+    prepared_list,
+    function(x) {
+      tibble::tibble(
+        first_mesh =
+          x$first_mesh,
+        zip_name =
+          x$zip_name,
+        zip_path =
+          x$zip_path,
+        url =
+          x$url,
+        download_status =
+          x$download_status,
+        n_candidate_files =
+          length(
+            x$candidate_files
+          )
+      )
+    }
+  )
+)
+
+readr::write_csv(
+  download_audit,
+  W07_DOWNLOAD_AUDIT_CSV,
+  na = ""
+)
+
+w07_lookup_list <- vector(
+  "list",
+  length(prepared_list)
+)
+
+for (
+  i
+  in seq_along(prepared_list)
+) {
+  first_mesh <-
+    prepared_list[[i]]$first_mesh
+
+  codes_this_mesh <-
+    needed_mesh100[
+      substr(
+        needed_mesh100,
+        1,
+        4
+      ) == first_mesh
+    ]
+
+  cat(
+    "Reading W07 first mesh ",
+    first_mesh,
+    " (needed point meshes: ",
+    length(codes_this_mesh),
+    ") ...\n",
+    sep = ""
+  )
+
+  w07_lookup_list[[i]] <-
+    read_one_w07_first_mesh(
+      prepared =
+        prepared_list[[i]],
+      needed_codes =
+        codes_this_mesh
+    )
+}
+
+w07_lookup <- dplyr::bind_rows(
+  w07_lookup_list
+) |>
+  dplyr::distinct(
+    watershed_mesh_code_100m,
+    .keep_all = TRUE
+  )
+
+cat(
+  "\nW07 records matched to needed 100m mesh codes: ",
+  nrow(w07_lookup),
+  "\n\n",
+  sep = ""
+)
+
+
+# ============================================================
+# 8. JOIN W07 ATTRIBUTES TO INPUT CSV
+# ============================================================
+
+w07_output_columns <- c(
+  "watershed_mesh_code_100m",
+  "watershed_first_mesh_code",
+  "watersystem_code",
+  "river_code",
+  "watersystem_name",
+  "river_name",
+  "unit_basin_code",
+  "w07_match_status",
+  "w07_source_year",
+  "w07_source_id",
+  "w07_source_first_mesh",
+  "w07_source_file"
+)
+
+base_for_join <- input_work
+
+if (
+  isTRUE(
+    REPLACE_EXISTING_W07_COLUMNS
+  )
+) {
+  base_for_join <- base_for_join |>
+    dplyr::select(
+      -dplyr::any_of(
+        setdiff(
+          w07_output_columns,
+          c(
+            "watershed_mesh_code_100m",
+            "watershed_first_mesh_code"
+          )
+        )
+      )
+    )
+}
+
+output_data <- base_for_join |>
+  dplyr::left_join(
+    w07_lookup,
+    by = "watershed_mesh_code_100m"
+  ) |>
+  dplyr::mutate(
+    w07_match_status =
+      dplyr::case_when(
+        !.coordinate_valid ~
+          "invalid_coordinate",
+        is.na(
+          watershed_mesh_code_100m
+        ) ~
+          "mesh_code_unavailable",
+        !is.na(
+          watersystem_code
+        ) |
+        !is.na(
+          watersystem_name
+        ) |
+        !is.na(
+          unit_basin_code
+        ) ~
+          "matched",
+        TRUE ~
+          "no_w07_match"
+      ),
+    w07_source_year =
+      W07_YEAR,
+    w07_source_id =
+      W07_DATASET_ID
+  ) |>
+  dplyr::select(
+    -dplyr::any_of(
+      c(
+        ".row_id",
+        ".place_id",
+        ".lon",
+        ".lat",
+        ".coordinate_valid"
+      )
+    )
+  )
+
+
+# ============================================================
+# 9. SAFE SAVE
+#    OUTPUT_CSVがINPUT_CSVと同一でも安全に置換する
+# ============================================================
+
+timestamp <- format(
+  Sys.time(),
+  "%Y%m%d_%H%M%S"
+)
+
+input_abs <- normalizePath(
+  INPUT_CSV,
+  winslash = "/",
+  mustWork = TRUE
+)
+
+output_abs <- normalizePath(
+  dirname(OUTPUT_CSV),
+  winslash = "/",
+  mustWork = TRUE
+)
+
+output_abs <- file.path(
+  output_abs,
+  basename(OUTPUT_CSV)
+)
+
+same_input_output <- identical(
+  input_abs,
+  output_abs
+)
+
+if (
+  same_input_output
+) {
+  backup_file <- file.path(
+    dirname(INPUT_CSV),
+    paste0(
+      tools::file_path_sans_ext(
+        basename(INPUT_CSV)
+      ),
+      "_before_W07_",
+      timestamp,
+      ".csv"
+    )
+  )
+
+  backup_ok <- file.copy(
+    INPUT_CSV,
+    backup_file,
+    overwrite = FALSE
+  )
+
+  if (!backup_ok) {
+    stop(
+      "入力CSVのバックアップ作成に失敗しました: ",
+      backup_file
+    )
+  }
+
+  cat(
+    "Backup created: ",
+    backup_file,
+    "\n",
+    sep = ""
+  )
+}
+
+temp_output <- tempfile(
+  pattern = "W07_join_",
+  tmpdir = dirname(OUTPUT_CSV),
+  fileext = ".csv"
+)
+
+readr::write_csv(
+  output_data,
+  temp_output,
+  na = ""
+)
+
+copy_ok <- file.copy(
+  temp_output,
+  OUTPUT_CSV,
+  overwrite = TRUE
+)
+
+unlink(
+  temp_output
+)
+
+if (!copy_ok) {
+  stop(
+    "出力CSVの保存に失敗しました: ",
+    OUTPUT_CSV
+  )
+}
+
+
+# ============================================================
+# 10. QA SUMMARY
+# ============================================================
+
+match_summary <- output_data |>
+  dplyr::count(
+    w07_match_status,
+    name = "n_rows"
+  ) |>
+  dplyr::mutate(
+    proportion =
+      n_rows /
+      sum(n_rows)
+  )
+
+watersystem_summary <- output_data |>
+  dplyr::filter(
+    w07_match_status ==
+      "matched"
+  ) |>
+  dplyr::count(
+    watersystem_code,
+    watersystem_name,
+    name = "n_rows"
+  ) |>
+  dplyr::arrange(
+    dplyr::desc(
+      n_rows
+    )
+  )
+
+join_summary <- dplyr::bind_rows(
+  tibble::tibble(
+    summary_type = "run",
+    item = c(
+      "input_rows",
+      "valid_coordinate_rows",
+      "required_first_mesh_count",
+      "required_unique_100m_mesh_count",
+      "matched_w07_unique_100m_mesh_count",
+      "w07_year"
+    ),
+    value = as.character(
+      c(
+        nrow(input_work),
+        sum(
+          input_work$.coordinate_valid
+        ),
+        length(
+          needed_first_meshes
+        ),
+        length(
+          needed_mesh100
+        ),
+        nrow(
+          w07_lookup
+        ),
+        W07_YEAR
+      )
+    )
+  ),
+  match_summary |>
+    dplyr::transmute(
+      summary_type =
+        "match_status",
+      item =
+        w07_match_status,
+      value =
+        as.character(
+          n_rows
+        )
+    ),
+  watersystem_summary |>
+    dplyr::transmute(
+      summary_type =
+        "watersystem",
+      item =
+        paste0(
+          watersystem_code,
+          ":",
+          watersystem_name
+        ),
+      value =
+        as.character(
+          n_rows
+        )
+    )
+)
+
+readr::write_csv(
+  join_summary,
+  W07_JOIN_SUMMARY_CSV,
+  na = ""
+)
+
+
+# ============================================================
+# 11. FINAL REPORT
+# ============================================================
+
+cat(
+  "\n============================================================\n",
+  "W07 watershed join completed\n",
+  "============================================================\n",
+  sep = ""
+)
+
+cat(
+  "Output CSV             : ",
+  OUTPUT_CSV,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "W07 download audit     : ",
+  W07_DOWNLOAD_AUDIT_CSV,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "W07 join summary       : ",
+  W07_JOIN_SUMMARY_CSV,
+  "\n\n",
+  sep = ""
+)
+
+print(
+  match_summary
+)
+
+cat(
+  "\nWatersystem summary:\n"
+)
+
+print(
+  watersystem_summary
+)
+```

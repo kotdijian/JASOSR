@@ -35,7 +35,7 @@ if (length(missing_packages) > 0) {
 
 invisible(lapply(required_packages, library, character.only = TRUE))
 
-if (utils::packageVersion("spdep") < utils::package_version("1.2-7")) {
+if (utils::packageVersion("spdep") < "1.2-7") {
   stop(
     "spdep >= 1.2-7 が必要です。現在のversion: ",
     as.character(utils::packageVersion("spdep"))

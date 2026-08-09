@@ -1,0 +1,17 @@
+summary_type,item,value
+run,input_rows,6520
+run,valid_coordinate_rows,6516
+run,required_first_mesh_count,2
+run,required_unique_100m_mesh_count,5876
+run,matched_w07_unique_100m_mesh_count,5876
+run,w07_year,2009
+match_status,invalid_coordinate,4
+match_status,matched,6516
+watersystem,830305:多摩川,2760
+watersystem,830304:荒川,1940
+watersystem,830306:鶴見川,655
+watersystem,unknown:unknown,553
+watersystem,130000:名称不明,279
+watersystem,140013:境川,266
+watersystem,830303:利根川,62
+watersystem,120000:名称不明,1

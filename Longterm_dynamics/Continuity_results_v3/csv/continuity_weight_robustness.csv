@@ -1,0 +1,6 @@
+weight_set,spearman_rank_vs_baseline,top_baseline_n,top_current_n,top_intersection_n,top_union_n,top_jaccard_vs_baseline
+balanced,1,630,630,630,630,1
+baseline,1,630,630,630,630,1
+coverage_heavy,0.9999981271798134,630,630,630,630,1
+gap_span_heavy,0.9999985321585829,630,630,630,630,1
+run_heavy,0.9986428961576405,630,625,625,630,0.9920634920634921

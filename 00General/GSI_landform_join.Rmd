@@ -1,0 +1,701 @@
+---
+title: "GSI Landform Classification Join"
+output: html_document
+---
+
+このRmdは、入力CSVの緯度経度から国土地理院「地形分類（自然地形）」GeoJSONタイルを取得し、各地点に地形分類属性を付与したCSVを出力します。
+
+**通常変更する設定はコード冒頭の `INPUT_CSV` と `ZOOM_LEVEL` です。**  
+ZL14–16は詳細版、ZL9–13は地域版、ZL5–8は広域版です。地点への詳細地形分類付与では、取得タイル数とのバランスから **ZL14を初期値** としています。
+
+```{r gsi_landform_join, message=TRUE, warning=TRUE}
+# ============================================================
+# 0. USER SETTINGS: 通常はここを書き換える
+# ============================================================
+
+# 入力CSV。Rmdと同じフォルダに置く場合はファイル名のみでよい。
+INPUT_CSV <- "13Tokyo_chronology.csv"
+
+# 地理院「地形分類（自然地形）」のズームレベル
+# 14-16 = 詳細版 / 9-13 = 地域版 / 5-8 = 広域版
+# 地点への地形属性付与には、まず ZL14 を推奨。
+ZOOM_LEVEL <- 14L
+
+# topology処理用CRS。
+# GeoJSONをEPSG:4326のままst_make_valid()/st_intersects()へ渡すと、
+# S2が自己交差ringを拒否する場合があるため、投影座標へ変換してから処理する。
+# 地点属性付与のみが目的なので、地理院タイルと相性のよいWeb Mercatorを使用。
+TOPOLOGY_CRS <- 3857
+
+# 入力CSV内の列名
+ID_COL  <- "JASID"
+LON_COL <- "Lon"
+LAT_COL <- "Lat"
+
+# 出力ファイル
+OUTPUT_CSV <- "13Tokyo_chronology_gsi_landform.csv"
+OUTPUT_TILE_AUDIT_CSV <- "gsi_landform_tile_audit.csv"
+OUTPUT_SUMMARY_CSV <- "gsi_landform_join_summary.csv"
+
+# ダウンロード済みタイルのキャッシュフォルダ
+CACHE_DIR <- file.path("gsi_landform_cache", paste0("z", ZOOM_LEVEL))
+USE_CACHE <- TRUE
+
+# 国土地理院「地形分類（自然地形）」GeoJSONタイル
+GSI_TILE_TEMPLATE <- paste0(
+  "https://cyberjapandata.gsi.go.jp/xyz/",
+  "experimental_landformclassification1/%d/%d/%d.geojson"
+)
+
+# タイル取得間隔（秒）。大量アクセスを避けるため小さな待機を入れる。
+DOWNLOAD_INTERVAL_SEC <- 0.05
+
+
+# ============================================================
+# 1. PACKAGE CHECK
+# ============================================================
+
+required_packages <- c("readr", "dplyr", "tibble", "sf")
+missing_packages <- required_packages[
+  !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "必要なRパッケージがありません: ",
+    paste(missing_packages, collapse = ", "),
+    "\n先に install.packages(c(",
+    paste(sprintf('"%s"', missing_packages), collapse = ", "),
+    ")) を実行してください。"
+  )
+}
+
+if (!ZOOM_LEVEL %in% 5:16) {
+  stop("ZOOM_LEVEL は 5～16 の整数を指定してください。")
+}
+
+if (!file.exists(INPUT_CSV)) {
+  stop("入力CSVが見つかりません: ", INPUT_CSV)
+}
+
+dir.create(CACHE_DIR, recursive = TRUE, showWarnings = FALSE)
+
+zoom_band <- dplyr::case_when(
+  ZOOM_LEVEL >= 14L ~ "detailed_ZL14_16",
+  ZOOM_LEVEL >= 9L  ~ "regional_ZL9_13",
+  TRUE              ~ "broad_ZL5_8"
+)
+
+cat("Input CSV :", INPUT_CSV, "\n")
+cat("Zoom level:", ZOOM_LEVEL, "(", zoom_band, ")\n")
+cat("Topology CRS: EPSG:", TOPOLOGY_CRS, "\n", sep = "")
+cat("Cache dir :", CACHE_DIR, "\n")
+
+
+# ============================================================
+# 2. READ INPUT
+#    元CSVの文字列表現をできるだけ保持するため全列characterで読む。
+# ============================================================
+
+input_data <- readr::read_csv(
+  INPUT_CSV,
+  col_types = readr::cols(.default = readr::col_character()),
+  locale = readr::locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+
+required_cols <- c(LON_COL, LAT_COL)
+missing_cols <- setdiff(required_cols, names(input_data))
+if (length(missing_cols) > 0) {
+  stop(
+    "入力CSVに必要な座標列がありません: ",
+    paste(missing_cols, collapse = ", ")
+  )
+}
+
+if (!ID_COL %in% names(input_data)) {
+  warning(
+    "ID_COL = '", ID_COL,
+    "' が見つからないため、内部行番号を地点IDとして使用します。"
+  )
+  input_data[[ID_COL]] <- as.character(seq_len(nrow(input_data)))
+}
+
+input_work <- input_data |>
+  dplyr::mutate(
+    .row_id = dplyr::row_number(),
+    .place_id = as.character(.data[[ID_COL]]),
+    .lon = suppressWarnings(as.numeric(.data[[LON_COL]])),
+    .lat = suppressWarnings(as.numeric(.data[[LAT_COL]])),
+    .coordinate_valid =
+      is.finite(.lon) &
+      is.finite(.lat) &
+      dplyr::between(.lon, -180, 180) &
+      dplyr::between(.lat, -90, 90)
+  )
+
+
+# ============================================================
+# 3. XYZ TILE NUMBER
+# ============================================================
+
+lonlat_to_xyz <- function(lon, lat, z) {
+  # Web Mercatorの有効緯度範囲へ制限
+  lat_webmerc <- pmax(pmin(lat, 85.05112878), -85.05112878)
+  n <- 2^z
+
+  x <- floor((lon + 180) / 360 * n)
+  lat_rad <- lat_webmerc * pi / 180
+  y <- floor(
+    (1 - log(tan(lat_rad) + 1 / cos(lat_rad)) / pi) / 2 * n
+  )
+
+  x <- pmax(pmin(x, n - 1), 0)
+  y <- pmax(pmin(y, n - 1), 0)
+
+  tibble::tibble(
+    tile_z = as.integer(z),
+    tile_x = as.integer(x),
+    tile_y = as.integer(y)
+  )
+}
+
+valid_coord_index <- which(input_work$.coordinate_valid)
+
+if (length(valid_coord_index) > 0) {
+  xyz <- lonlat_to_xyz(
+    input_work$.lon[valid_coord_index],
+    input_work$.lat[valid_coord_index],
+    ZOOM_LEVEL
+  )
+
+  input_work$tile_z <- NA_integer_
+  input_work$tile_x <- NA_integer_
+  input_work$tile_y <- NA_integer_
+  input_work$tile_z[valid_coord_index] <- xyz$tile_z
+  input_work$tile_x[valid_coord_index] <- xyz$tile_x
+  input_work$tile_y[valid_coord_index] <- xyz$tile_y
+} else {
+  input_work$tile_z <- NA_integer_
+  input_work$tile_x <- NA_integer_
+  input_work$tile_y <- NA_integer_
+}
+
+input_work <- input_work |>
+  dplyr::mutate(
+    tile_key = dplyr::if_else(
+      .coordinate_valid,
+      paste(tile_z, tile_x, tile_y, sep = "/"),
+      NA_character_
+    ),
+    gsi_tile_url = dplyr::if_else(
+      .coordinate_valid,
+      sprintf(GSI_TILE_TEMPLATE, tile_z, tile_x, tile_y),
+      NA_character_
+    )
+  )
+
+unique_tiles <- input_work |>
+  dplyr::filter(.coordinate_valid) |>
+  dplyr::distinct(tile_z, tile_x, tile_y, tile_key, gsi_tile_url) |>
+  dplyr::arrange(tile_x, tile_y)
+
+cat("Valid coordinates:", sum(input_work$.coordinate_valid), "\n")
+cat("Unique GSI tiles  :", nrow(unique_tiles), "\n")
+
+
+# ============================================================
+# 4. GSI OFFICIAL LEGEND MAPPING
+#    国土地理院「ベクトルタイル『地形分類』の凡例対応表」の
+#    属性コード(code)を主要分類名へ対応させる。
+#
+#    注意:
+#    - この対応表は原データの属性コードを分類名へまとめるもの。
+#    - ZL5-13で未対応コード等が出た場合も raw code は保持する。
+# ============================================================
+
+legend_groups <- list(
+  "山地斜面等" = c("10101", "11201", "11202", "11203", "11204", "1010101"),
+  "崖・段丘崖" = c("10202", "10204", "2010201"),
+  "地すべり地形" = c("10205", "10206"),
+  "台地・段丘" = c(
+    "10301", "10302", "10303", "10304", "10305", "10306", "10307",
+    "10308", "10310", "10312", "10314", "10508", "2010101"
+  ),
+  "山麓堆積地形" = c("10401", "10402", "10403", "10404", "10406", "10407", "3010101"),
+  "扇状地" = c("10501", "10502", "3020101"),
+  "自然堤防" = c("10503", "3040101"),
+  "天井川等" = c("10506", "10507", "10801"),
+  "砂州・砂丘" = c("10504", "10505", "10512", "3050101"),
+  "凹地・浅い谷" = c("10601", "2010301"),
+  "氾濫平野・海岸平野" = c("10701", "10702", "10705", "3030101"),
+  "後背低地・湿地" = c("10703", "10804", "3030201"),
+  "旧河道" = c("10704", "3040201", "3040202"),
+  "落堀" = c("3040301"),
+  "河川敷・浜" = c("10802", "10803", "10807", "10808"),
+  "水部" = c("10805", "10806", "10901", "10903", "5010201"),
+  "旧水部" = c("10904", "5010301"),
+  "切土地" = c("11001", "11003", "11009", "11011", "4010301"),
+  "農耕平坦化地" = c("11002"),
+  "干拓地" = c("11008", "4010101"),
+  "盛土地・埋立地" = c("11004", "11005", "11006", "11007", "11014", "4010201"),
+  "改変工事中" = c("11010")
+)
+
+landform_legend <- dplyr::bind_rows(
+  lapply(names(legend_groups), function(class_name) {
+    tibble::tibble(
+      landform_code = as.character(legend_groups[[class_name]]),
+      landform_class_gsi = class_name
+    )
+  })
+) |>
+  dplyr::distinct(landform_code, .keep_all = TRUE)
+
+
+# ============================================================
+# 5. DOWNLOAD / READ UNIQUE TILES
+# ============================================================
+
+download_one_tile <- function(z, x, y, url, cache_dir, use_cache = TRUE) {
+  cache_file <- file.path(
+    cache_dir,
+    sprintf("z%d_x%d_y%d.geojson", z, x, y)
+  )
+
+  if (
+    isTRUE(use_cache) &&
+    file.exists(cache_file) &&
+    isTRUE(file.info(cache_file)$size > 0)
+  ) {
+    return(list(
+      cache_file = cache_file,
+      download_status = "cached",
+      download_ok = TRUE
+    ))
+  }
+
+  if (file.exists(cache_file)) {
+    unlink(cache_file)
+  }
+
+  status_code <- tryCatch(
+    suppressWarnings(
+      utils::download.file(
+        url = url,
+        destfile = cache_file,
+        method = "libcurl",
+        mode = "wb",
+        quiet = TRUE
+      )
+    ),
+    error = function(e) NA_integer_
+  )
+
+  ok <-
+    isTRUE(status_code == 0L) &&
+    file.exists(cache_file) &&
+    isTRUE(file.info(cache_file)$size > 0)
+
+  if (!ok && file.exists(cache_file)) {
+    unlink(cache_file)
+  }
+
+  list(
+    cache_file = cache_file,
+    download_status = if (ok) "downloaded" else "download_failed",
+    download_ok = ok
+  )
+}
+
+read_one_tile <- function(cache_file, tile_key) {
+  if (!file.exists(cache_file)) {
+    return(NULL)
+  }
+
+  x <- tryCatch(
+    suppressWarnings(
+      sf::st_read(
+        cache_file,
+        quiet = TRUE,
+        stringsAsFactors = FALSE
+      )
+    ),
+    error = function(e) NULL
+  )
+
+  if (is.null(x) || nrow(x) == 0) {
+    return(NULL)
+  }
+
+  if (is.na(sf::st_crs(x))) {
+    sf::st_crs(x) <- 4326
+  } else if (sf::st_crs(x) != sf::st_crs(4326)) {
+    x <- sf::st_transform(x, 4326)
+  }
+
+  # EPSG:4326のままst_make_valid()するとS2が無効ringを先に拒否することがある。
+  # 先に投影座標へ変換し、GEOSでgeometryを修復する。
+  x <- sf::st_transform(
+    x,
+    TOPOLOGY_CRS
+  )
+
+  x <- suppressWarnings(
+    sf::st_make_valid(x)
+  )
+
+  x$.tile_key <- tile_key
+  x
+}
+
+if (nrow(unique_tiles) > 0) {
+  tile_results <- vector("list", nrow(unique_tiles))
+  tile_sf_list <- vector("list", nrow(unique_tiles))
+
+  for (i in seq_len(nrow(unique_tiles))) {
+    tt <- unique_tiles[i, ]
+
+    dl <- download_one_tile(
+      z = tt$tile_z,
+      x = tt$tile_x,
+      y = tt$tile_y,
+      url = tt$gsi_tile_url,
+      cache_dir = CACHE_DIR,
+      use_cache = USE_CACHE
+    )
+
+    tile_sf <- NULL
+    read_status <- "not_read"
+    n_features <- NA_integer_
+
+    if (dl$download_ok) {
+      tile_sf <- read_one_tile(dl$cache_file, tt$tile_key)
+      if (is.null(tile_sf)) {
+        read_status <- "empty_or_read_failed"
+        n_features <- 0L
+      } else {
+        read_status <- "read_ok"
+        n_features <- nrow(tile_sf)
+      }
+    }
+
+    tile_results[[i]] <- tibble::tibble(
+      tile_z = tt$tile_z,
+      tile_x = tt$tile_x,
+      tile_y = tt$tile_y,
+      tile_key = tt$tile_key,
+      gsi_tile_url = tt$gsi_tile_url,
+      cache_file = dl$cache_file,
+      download_status = dl$download_status,
+      read_status = read_status,
+      n_features = n_features,
+      tile_available = !is.null(tile_sf)
+    )
+
+    tile_sf_list[[i]] <- tile_sf
+
+    if (!identical(dl$download_status, "cached")) {
+      Sys.sleep(DOWNLOAD_INTERVAL_SEC)
+    }
+
+    if (i %% 50 == 0 || i == nrow(unique_tiles)) {
+      cat("Tiles processed:", i, "/", nrow(unique_tiles), "\n")
+    }
+  }
+
+  tile_audit <- dplyr::bind_rows(tile_results)
+  tile_sf_list <- Filter(Negate(is.null), tile_sf_list)
+} else {
+  tile_audit <- tibble::tibble(
+    tile_z = integer(0),
+    tile_x = integer(0),
+    tile_y = integer(0),
+    tile_key = character(0),
+    gsi_tile_url = character(0),
+    cache_file = character(0),
+    download_status = character(0),
+    read_status = character(0),
+    n_features = integer(0),
+    tile_available = logical(0)
+  )
+  tile_sf_list <- list()
+}
+
+readr::write_csv(
+  tile_audit,
+  OUTPUT_TILE_AUDIT_CSV,
+  na = ""
+)
+
+
+# ============================================================
+# 6. COMBINE TILE FEATURES AND NORMALIZE code
+# ============================================================
+
+if (length(tile_sf_list) > 0) {
+  landform_sf <- dplyr::bind_rows(tile_sf_list)
+
+  # GeoJSON属性名 code の大文字小文字差にも対応
+  code_candidates <- names(landform_sf)[tolower(names(landform_sf)) == "code"]
+
+  if (length(code_candidates) == 0) {
+    warning(
+      "取得したGeoJSONに 'code' 属性がありません。",
+      "地形コード・分類名はNAとなります。タイル仕様変更の可能性を確認してください。"
+    )
+    landform_sf$landform_code <- NA_character_
+  } else {
+    code_col <- code_candidates[1]
+    landform_sf$landform_code <- as.character(landform_sf[[code_col]])
+  }
+
+  landform_sf <- landform_sf |>
+    dplyr::left_join(
+      landform_legend,
+      by = "landform_code"
+    )
+
+  # 各タイル読込時にTOPOLOGY_CRS上で修復済みだが、結合後にも最終確認する。
+  landform_sf <- suppressWarnings(
+    sf::st_make_valid(landform_sf)
+  )
+} else {
+  landform_sf <- sf::st_sf(
+    landform_code = character(0),
+    landform_class_gsi = character(0),
+    .tile_key = character(0),
+    geometry = sf::st_sfc(crs = TOPOLOGY_CRS)
+  )
+}
+
+
+# ============================================================
+# 7. POINT-IN-POLYGON
+# ============================================================
+
+valid_points_df <- input_work |>
+  dplyr::filter(.coordinate_valid) |>
+  dplyr::select(
+    .row_id,
+    .place_id,
+    .lon,
+    .lat,
+    tile_z,
+    tile_x,
+    tile_y,
+    tile_key,
+    gsi_tile_url
+  ) |>
+  dplyr::left_join(
+    tile_audit |>
+      dplyr::select(
+        tile_key,
+        download_status,
+        read_status,
+        tile_available
+      ),
+    by = "tile_key"
+  )
+
+if (nrow(valid_points_df) > 0) {
+  valid_points_sf <- sf::st_as_sf(
+    valid_points_df,
+    coords = c(".lon", ".lat"),
+    crs = 4326,
+    remove = FALSE
+  ) |>
+    sf::st_transform(TOPOLOGY_CRS)
+
+  if (nrow(landform_sf) > 0) {
+    hit_list <- sf::st_intersects(valid_points_sf, landform_sf)
+  } else {
+    hit_list <- rep(list(integer(0)), nrow(valid_points_sf))
+  }
+
+  match_results <- dplyr::bind_rows(
+    lapply(seq_len(nrow(valid_points_sf)), function(i) {
+      idx <- hit_list[[i]]
+      available <- isTRUE(valid_points_df$tile_available[i])
+
+      if (!available) {
+        status <- dplyr::case_when(
+          identical(valid_points_df$download_status[i], "download_failed") ~ "tile_download_failed",
+          identical(valid_points_df$read_status[i], "empty_or_read_failed") ~ "tile_empty_or_read_failed",
+          TRUE ~ "tile_unavailable"
+        )
+
+        return(tibble::tibble(
+          .row_id = valid_points_df$.row_id[i],
+          gsi_landform_feature_match_n = 0L,
+          gsi_landform_unique_code_n = 0L,
+          gsi_landform_code = NA_character_,
+          gsi_landform_class = NA_character_,
+          gsi_landform_match_status = status
+        ))
+      }
+
+      if (length(idx) == 0) {
+        return(tibble::tibble(
+          .row_id = valid_points_df$.row_id[i],
+          gsi_landform_feature_match_n = 0L,
+          gsi_landform_unique_code_n = 0L,
+          gsi_landform_code = NA_character_,
+          gsi_landform_class = NA_character_,
+          gsi_landform_match_status = "no_feature_match"
+        ))
+      }
+
+      codes <- unique(stats::na.omit(landform_sf$landform_code[idx]))
+      classes <- unique(stats::na.omit(landform_sf$landform_class_gsi[idx]))
+
+      # タイル境界で同一地形polygonが複数featureとして当たる場合に備え、
+      # feature数とunique code数を分けて記録する。
+      code_text <- if (length(codes) > 0) {
+        paste(sort(as.character(codes)), collapse = ";")
+      } else {
+        NA_character_
+      }
+
+      class_text <- if (length(classes) > 0) {
+        paste(sort(as.character(classes)), collapse = ";")
+      } else {
+        NA_character_
+      }
+
+      status <- dplyr::case_when(
+        length(codes) == 0 ~ "matched_without_code",
+        length(codes) > 1 ~ "multiple_codes",
+        length(classes) == 0 ~ "matched_unmapped_code",
+        length(classes) > 1 ~ "multiple_classes",
+        TRUE ~ "matched"
+      )
+
+      tibble::tibble(
+        .row_id = valid_points_df$.row_id[i],
+        gsi_landform_feature_match_n = as.integer(length(idx)),
+        gsi_landform_unique_code_n = as.integer(length(codes)),
+        gsi_landform_code = code_text,
+        gsi_landform_class = class_text,
+        gsi_landform_match_status = status
+      )
+    })
+  )
+} else {
+  match_results <- tibble::tibble(
+    .row_id = integer(0),
+    gsi_landform_feature_match_n = integer(0),
+    gsi_landform_unique_code_n = integer(0),
+    gsi_landform_code = character(0),
+    gsi_landform_class = character(0),
+    gsi_landform_match_status = character(0)
+  )
+}
+
+
+# ============================================================
+# 8. JOIN BACK TO ORIGINAL CSV
+# ============================================================
+
+acquired_at_utc <- format(
+  Sys.time(),
+  tz = "UTC",
+  format = "%Y-%m-%dT%H:%M:%SZ"
+)
+
+output_data <- input_work |>
+  dplyr::left_join(match_results, by = ".row_id") |>
+  dplyr::mutate(
+    gsi_landform_match_status = dplyr::case_when(
+      !.coordinate_valid ~ "invalid_coordinate",
+      TRUE ~ gsi_landform_match_status
+    ),
+    gsi_landform_zoom = ZOOM_LEVEL,
+    gsi_landform_zoom_band = zoom_band,
+    gsi_landform_source = "GSI experimental_landformclassification1",
+    gsi_landform_acquired_at_utc = acquired_at_utc,
+    gsi_landform_tile_x = tile_x,
+    gsi_landform_tile_y = tile_y,
+    gsi_landform_tile_url = gsi_tile_url
+  ) |>
+  dplyr::select(
+    -dplyr::any_of(c(
+      ".row_id", ".place_id", ".lon", ".lat", ".coordinate_valid",
+      "tile_z", "tile_x", "tile_y", "tile_key", "gsi_tile_url"
+    ))
+  )
+
+readr::write_csv(
+  output_data,
+  OUTPUT_CSV,
+  na = ""
+)
+
+
+# ============================================================
+# 9. SUMMARY / AUDIT OUTPUT
+# ============================================================
+
+status_summary <- output_data |>
+  dplyr::count(
+    gsi_landform_match_status,
+    name = "n_rows"
+  ) |>
+  dplyr::mutate(
+    proportion = n_rows / sum(n_rows)
+  )
+
+class_summary <- output_data |>
+  dplyr::filter(gsi_landform_match_status == "matched") |>
+  dplyr::count(
+    gsi_landform_class,
+    name = "n_rows"
+  ) |>
+  dplyr::arrange(dplyr::desc(n_rows))
+
+join_summary <- dplyr::bind_rows(
+  tibble::tibble(
+    summary_type = "run",
+    item = c(
+      "input_rows",
+      "valid_coordinate_rows",
+      "invalid_coordinate_rows",
+      "unique_tiles",
+      "zoom_level"
+    ),
+    value = as.character(c(
+      nrow(input_work),
+      sum(input_work$.coordinate_valid),
+      sum(!input_work$.coordinate_valid),
+      nrow(unique_tiles),
+      ZOOM_LEVEL
+    ))
+  ),
+  status_summary |>
+    dplyr::transmute(
+      summary_type = "match_status",
+      item = gsi_landform_match_status,
+      value = as.character(n_rows)
+    ),
+  class_summary |>
+    dplyr::transmute(
+      summary_type = "landform_class",
+      item = gsi_landform_class,
+      value = as.character(n_rows)
+    )
+)
+
+readr::write_csv(
+  join_summary,
+  OUTPUT_SUMMARY_CSV,
+  na = ""
+)
+
+cat("\nCompleted.\n")
+cat("Output CSV        :", OUTPUT_CSV, "\n")
+cat("Tile audit CSV    :", OUTPUT_TILE_AUDIT_CSV, "\n")
+cat("Summary CSV       :", OUTPUT_SUMMARY_CSV, "\n\n")
+
+print(status_summary)
+print(class_summary)
+```

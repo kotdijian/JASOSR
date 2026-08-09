@@ -1,0 +1,4 @@
+model_id,distance_band_m,n_points,n_isolates,mean_degree,median_degree,max_degree,connected_share
+fixed_1000m,1000,5624,0,38.746977240398294,26,180,1
+fixed_2000m,2000,5624,0,120.85988620199147,78,515,1
+fixed_5000m,5000,5624,0,478.49822190611667,315.5,1293,1
