@@ -1,0 +1,11 @@
+metric,lisa_class_bh,n_nodes,coordinate_policy,k
+continuity_index,not_significant,5624,separate_records,8
+gap_count,not_significant,5624,separate_records,8
+intermittency_index,not_significant,5624,separate_records,8
+longest_run_length,not_significant,5624,separate_records,8
+max_gap_length,not_significant,5624,separate_records,8
+continuity_index,not_significant,5618,aggregated,8
+gap_count,not_significant,5618,aggregated,8
+intermittency_index,not_significant,5618,aggregated,8
+longest_run_length,not_significant,5618,aggregated,8
+max_gap_length,not_significant,5618,aggregated,8

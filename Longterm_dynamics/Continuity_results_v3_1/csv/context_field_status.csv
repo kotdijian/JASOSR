@@ -1,0 +1,16 @@
+column_name,exists,context_group
+gsi_landform_code,TRUE,GSI_landform
+gsi_landform_class,TRUE,GSI_landform
+gsi_landform_match_status,TRUE,GSI_landform
+gsi_landform_zoom,TRUE,GSI_landform
+gsi_landform_source,TRUE,GSI_landform
+watershed_mesh_code_100m,TRUE,W07_watershed
+watershed_first_mesh_code,TRUE,W07_watershed
+watersystem_code,TRUE,W07_watershed
+watersystem_name,TRUE,W07_watershed
+river_code,TRUE,W07_watershed
+river_name,TRUE,W07_watershed
+unit_basin_code,TRUE,W07_watershed
+w07_match_status,TRUE,W07_watershed
+w07_source_year,TRUE,W07_watershed
+w07_source_id,TRUE,W07_watershed

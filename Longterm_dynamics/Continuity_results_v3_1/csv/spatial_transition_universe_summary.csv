@@ -1,0 +1,7 @@
+phase_pair,phase_pair_order,n_spatial_points_all_states,n_active_transition_points,n_apparent_absence_continue_excluded,active_transition_share,n_continue,n_drop,n_new,analysis_universe
+Pa->Jo,1,5624,3906,1718,0.6945234708392604,634,60,3212,active_transition_only_excluding_0to0
+Jo->Ya,2,5624,3944,1680,0.701280227596017,549,3297,98,active_transition_only_excluding_0to0
+Ya->Ko,3,5624,1926,3698,0.34246088193456614,358,289,1279,active_transition_only_excluding_0to0
+Ko->Na,4,5624,2691,2933,0.4784850640113798,651,986,1054,active_transition_only_excluding_0to0
+Na->He,5,5624,2394,3230,0.42567567567567566,1485,220,689,active_transition_only_excluding_0to0
+He->Me,6,5624,2626,2998,0.466927453769559,571,1603,452,active_transition_only_excluding_0to0

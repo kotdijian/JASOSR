@@ -12,3 +12,5 @@ spatial_permutations,999
 run_fixed_distance_calibration,TRUE
 fixed_distance_bands_m,"1000,2000,5000"
 local_p_adjustment,BH
+transition_spatial_universe,active_transition_only_excluding_0to0
+transition_neighbors_rebuilt_by_phase_pair,TRUE

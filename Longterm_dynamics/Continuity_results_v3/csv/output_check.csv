@@ -44,6 +44,9 @@ csv,coordinate_group_summary.csv,Continuity_results_v3/csv/coordinate_group_summ
 csv,spatial_neighbor_diagnostics.csv,Continuity_results_v3/csv/spatial_neighbor_diagnostics.csv,TRUE,ok
 csv,spatial_neighbor_edges.csv,Continuity_results_v3/csv/spatial_neighbor_edges.csv,TRUE,ok
 csv,spatial_global_moran_knn_sensitivity.csv,Continuity_results_v3/csv/spatial_global_moran_knn_sensitivity.csv,TRUE,ok
+csv,spatial_transition_universe_summary.csv,Continuity_results_v3/csv/spatial_transition_universe_summary.csv,TRUE,ok
+csv,spatial_transition_neighbor_diagnostics.csv,Continuity_results_v3/csv/spatial_transition_neighbor_diagnostics.csv,TRUE,ok
+csv,spatial_transition_neighbor_edges.csv,Continuity_results_v3/csv/spatial_transition_neighbor_edges.csv,TRUE,ok
 csv,spatial_transition_global_moran_knn_sensitivity.csv,Continuity_results_v3/csv/spatial_transition_global_moran_knn_sensitivity.csv,TRUE,ok
 csv,continuity_weight_spatial_robustness.csv,Continuity_results_v3/csv/continuity_weight_spatial_robustness.csv,TRUE,ok
 csv,fixed_distance_neighbor_diagnostics.csv,Continuity_results_v3/csv/fixed_distance_neighbor_diagnostics.csv,TRUE,ok
@@ -75,6 +78,7 @@ gpkg_layer,chronology_run_events,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE
 gpkg_layer,chronology_gap_events,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE,ok
 gpkg_layer,coordinate_groups,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE,ok
 gpkg_layer,spatial_knn_edges_k8,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE,ok
+gpkg_layer,spatial_transition_knn_edges_k8,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE,ok
 gpkg_layer,spatial_local_moran_k8,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE,ok
 gpkg_layer,spatial_transition_local_k8,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE,ok
 gpkg_attribute_table,analysis_metadata,Continuity_results_v3/gpkg/Continuity.gpkg,TRUE,ok

@@ -12,7 +12,7 @@ output:
 **目的**：必要パッケージ、共通関数、分析バージョンを定義する。
 
 ```{r c01_setup, eval=TRUE, message=FALSE, warning=FALSE}
-analysis_version <- "3.0.0"
+analysis_version <- "3.1.0"
 analysis_run_id <- paste0(
   "continuity_",
   format(Sys.time(), "%Y%m%d_%H%M%S")
@@ -159,7 +159,7 @@ make_empty_point_sf <- function(crs_value = 4326) {
 # GSI地形分類 + 国土数値情報W07を付与したCSVを正式入力とする。
 input_csv <- "13Tokyo_chronology_gsi_landform.csv"
 
-results_dir <- "Continuity_results_v3"
+results_dir <- "Continuity_results_v3_1"
 csv_dir <- file.path(results_dir, "csv")
 figure_dir <- file.path(results_dir, "figure")
 gpkg_dir <- file.path(results_dir, "gpkg")
@@ -2314,7 +2314,7 @@ cat("records in duplicate coordinate groups:", sum(coordinate_group_summary$coor
 
 # 17. spatial-neighbor-and-global-sensitivity
 
-**目的**：k=4/8/12を毎回比較し、edge距離とGlobal Moran's Iの頑健性を診断する。fixed-distance比較はモデル較正時のみ実行可能とする。
+**目的**：k=4/8/12を毎回比較し、edge距離とGlobal Moran's Iの頑健性を診断する。Transition空間分析では各時期ペアの0→0を除外し、active地点だけで近隣関係を再構築する。fixed-distance比較はモデル較正時のみ実行可能とする。
 
 ```{r c17_spatial_neighbor_and_global_sensitivity, eval=TRUE}
 build_symmetric_knn_nb <- function(coords, k) {
@@ -2343,6 +2343,7 @@ nb_to_edges <- function(nb, coords, place_ids, model_id, k_value = NA_integer_) 
     seq_along(nb),
     function(i) {
       nbi <- nb[[i]]
+
       if (length(nbi) == 0) {
         return(tibble::tibble())
       }
@@ -2425,15 +2426,19 @@ available_spatial_metrics <- intersect(
   names(spatial_base_metric_sf)
 )
 
+# ------------------------------------------------------------------
+# A. continuity / gap metrics:
+#    全空間分析対象地点を使う従来のkNNモデル
+# ------------------------------------------------------------------
 knn_models <- list()
 spatial_neighbor_edges_all <- list()
 spatial_neighbor_diagnostics_list <- list()
 spatial_global_moran_list <- list()
-spatial_transition_global_list <- list()
 
 for (k_value in spatial_k_values) {
   k_eff <- min(k_value, nrow(spatial_base_metric_sf) - 1L)
   model_id <- paste0("knn_k", k_eff)
+
   nb <- build_symmetric_knn_nb(coords_metric, k_eff)
   listw_w <- spdep::nb2listw(nb, style = "W", zero.policy = TRUE)
   listw_b <- spdep::nb2listw(nb, style = "B", zero.policy = TRUE)
@@ -2453,6 +2458,7 @@ for (k_value in spatial_k_values) {
     model_id,
     k_eff
   )
+
   spatial_neighbor_edges_all[[as.character(k_value)]] <- edges
 
   degree <- lengths(nb)
@@ -2466,12 +2472,36 @@ for (k_value in spatial_k_values) {
     mean_degree = mean(degree),
     median_degree = stats::median(degree),
     max_degree = max(degree),
-    edge_min_m = ifelse(nrow(edges) > 0, min(edges$edge_distance_m), NA_real_),
-    edge_median_m = ifelse(nrow(edges) > 0, stats::median(edges$edge_distance_m), NA_real_),
-    edge_p90_m = ifelse(nrow(edges) > 0, as.numeric(stats::quantile(edges$edge_distance_m, 0.90)), NA_real_),
-    edge_p95_m = ifelse(nrow(edges) > 0, as.numeric(stats::quantile(edges$edge_distance_m, 0.95)), NA_real_),
-    edge_p99_m = ifelse(nrow(edges) > 0, as.numeric(stats::quantile(edges$edge_distance_m, 0.99)), NA_real_),
-    edge_max_m = ifelse(nrow(edges) > 0, max(edges$edge_distance_m), NA_real_)
+    edge_min_m = ifelse(
+      nrow(edges) > 0,
+      min(edges$edge_distance_m),
+      NA_real_
+    ),
+    edge_median_m = ifelse(
+      nrow(edges) > 0,
+      stats::median(edges$edge_distance_m),
+      NA_real_
+    ),
+    edge_p90_m = ifelse(
+      nrow(edges) > 0,
+      as.numeric(stats::quantile(edges$edge_distance_m, 0.90)),
+      NA_real_
+    ),
+    edge_p95_m = ifelse(
+      nrow(edges) > 0,
+      as.numeric(stats::quantile(edges$edge_distance_m, 0.95)),
+      NA_real_
+    ),
+    edge_p99_m = ifelse(
+      nrow(edges) > 0,
+      as.numeric(stats::quantile(edges$edge_distance_m, 0.99)),
+      NA_real_
+    ),
+    edge_max_m = ifelse(
+      nrow(edges) > 0,
+      max(edges$edge_distance_m),
+      NA_real_
+    )
   )
 
   for (threshold_m in edge_diagnostic_thresholds_m) {
@@ -2480,6 +2510,7 @@ for (k_value in spatial_k_values) {
       sum(edges$edge_distance_m > threshold_m),
       0L
     )
+
     diag_row[[paste0("prop_edges_gt_", threshold_m, "m")]] <- ifelse(
       nrow(edges) > 0,
       mean(edges$edge_distance_m > threshold_m),
@@ -2501,69 +2532,309 @@ for (k_value in spatial_k_values) {
         dplyr::mutate(k = k_eff)
     }
   )
+}
+
+spatial_neighbor_edges <- dplyr::bind_rows(
+  spatial_neighbor_edges_all
+)
+
+spatial_neighbor_diagnostics <- dplyr::bind_rows(
+  spatial_neighbor_diagnostics_list
+)
+
+spatial_global_moran <- dplyr::bind_rows(
+  spatial_global_moran_list
+)
+
+# ------------------------------------------------------------------
+# B. Transition spatial universe
+#
+# IMPORTANT:
+# 各時期ペアで 0->0 (apparent_absence_continue) を除外する。
+# その後、その時期ペアでactiveな地点だけからkNNを再構築する。
+#
+# これにより、Pa/Joともに見かけ上不在の後代地点などが
+# 「Pa->Jo newの少ない地域」として空間分析へ混入することを防ぐ。
+# ------------------------------------------------------------------
+transition_pair_spatial_list <- list()
+transition_universe_rows <- list()
+
+for (pair_value in phase_transition_pair_table$phase_pair) {
+  pair_data <- phase_transition_long |>
+    dplyr::filter(phase_pair == pair_value) |>
+    dplyr::select(
+      place_id,
+      phase_pair,
+      phase_pair_order,
+      presence,
+      next_presence,
+      transition
+    )
+
+  pair_all_spatial <- spatial_base_metric_sf |>
+    dplyr::select(place_id) |>
+    dplyr::left_join(
+      pair_data,
+      by = "place_id"
+    )
+
+  pair_active_spatial <- pair_all_spatial |>
+    dplyr::filter(
+      !is.na(transition),
+      transition != "apparent_absence_continue"
+    )
+
+  if (nrow(pair_active_spatial) < 3) {
+    stop(
+      "Transition空間分析に必要なactive地点数が不足しています: ",
+      pair_value,
+      " n=",
+      nrow(pair_active_spatial)
+    )
+  }
+
+  transition_pair_spatial_list[[pair_value]] <- pair_active_spatial
+
+  transition_universe_rows[[pair_value]] <- tibble::tibble(
+    phase_pair = pair_value,
+    phase_pair_order = {
+      ord <- unique(stats::na.omit(pair_active_spatial$phase_pair_order))
+      if (length(ord) > 0) ord[[1]] else NA_integer_
+    },
+    n_spatial_points_all_states = nrow(pair_all_spatial),
+    n_active_transition_points = nrow(pair_active_spatial),
+    n_apparent_absence_continue_excluded = sum(
+      pair_all_spatial$transition == "apparent_absence_continue",
+      na.rm = TRUE
+    ),
+    active_transition_share = nrow(pair_active_spatial) / nrow(pair_all_spatial),
+    n_continue = sum(pair_active_spatial$transition == "continue"),
+    n_drop = sum(pair_active_spatial$transition == "drop"),
+    n_new = sum(pair_active_spatial$transition == "new"),
+    analysis_universe = "active_transition_only_excluding_0to0"
+  )
+}
+
+transition_spatial_universe_summary <- dplyr::bind_rows(
+  transition_universe_rows
+) |>
+  dplyr::arrange(phase_pair_order)
+
+# ------------------------------------------------------------------
+# C. Transition kNN:
+#    k=4/8/12ごと、かつ時期ペアごとにactive地点だけで再構築
+# ------------------------------------------------------------------
+transition_knn_models <- list()
+spatial_transition_neighbor_edges_list <- list()
+spatial_transition_neighbor_diagnostics_list <- list()
+spatial_transition_global_list <- list()
+
+for (k_value in spatial_k_values) {
+  k_key <- as.character(k_value)
+  transition_knn_models[[k_key]] <- list()
 
   transition_global_rows <- list()
-  idx <- 1L
-  for (pair_value in phase_transition_pair_table$phase_pair) {
-    pair_data <- phase_transition_long |>
-      dplyr::filter(phase_pair == pair_value) |>
-      dplyr::select(place_id, phase_pair_order, transition)
+  global_idx <- 1L
 
-    pair_spatial <- spatial_base_metric_sf |>
-      sf::st_drop_geometry() |>
-      dplyr::select(place_id) |>
-      dplyr::left_join(pair_data, by = "place_id")
+  for (pair_value in phase_transition_pair_table$phase_pair) {
+    pair_spatial <- transition_pair_spatial_list[[pair_value]]
+    pair_coords <- sf::st_coordinates(pair_spatial)
+
+    k_eff <- min(
+      as.integer(k_value),
+      nrow(pair_spatial) - 1L
+    )
+
+    model_id <- paste0(
+      "transition_",
+      safe_name(pair_value),
+      "_knn_k",
+      k_eff
+    )
+
+    nb_pair <- build_symmetric_knn_nb(
+      pair_coords,
+      k_eff
+    )
+
+    listw_w_pair <- spdep::nb2listw(
+      nb_pair,
+      style = "W",
+      zero.policy = TRUE
+    )
+
+    listw_b_pair <- spdep::nb2listw(
+      nb_pair,
+      style = "B",
+      zero.policy = TRUE
+    )
+
+    transition_knn_models[[k_key]][[pair_value]] <- list(
+      model_id = model_id,
+      k = k_eff,
+      phase_pair = pair_value,
+      place_ids = pair_spatial$place_id,
+      nb = nb_pair,
+      listw_w = listw_w_pair,
+      listw_b = listw_b_pair
+    )
+
+    pair_edges <- nb_to_edges(
+      nb_pair,
+      pair_coords,
+      pair_spatial$place_id,
+      model_id,
+      k_eff
+    ) |>
+      dplyr::mutate(
+        phase_pair = pair_value,
+        phase_pair_order = {
+          ord <- unique(stats::na.omit(pair_spatial$phase_pair_order))
+          if (length(ord) > 0) ord[[1]] else NA_integer_
+        },
+        analysis_universe = "active_transition_only_excluding_0to0"
+      )
+
+    spatial_transition_neighbor_edges_list[[
+      paste(k_key, pair_value, sep = "__")
+    ]] <- pair_edges
+
+    degree <- lengths(nb_pair)
+
+    pair_diag <- tibble::tibble(
+      model_id = model_id,
+      k = k_eff,
+      phase_pair = pair_value,
+      phase_pair_order = {
+        ord <- unique(stats::na.omit(pair_spatial$phase_pair_order))
+        if (length(ord) > 0) ord[[1]] else NA_integer_
+      },
+      n_points = nrow(pair_spatial),
+      n_edges = nrow(pair_edges),
+      n_isolates = sum(degree == 0),
+      mean_degree = mean(degree),
+      median_degree = stats::median(degree),
+      max_degree = max(degree),
+      edge_min_m = ifelse(
+        nrow(pair_edges) > 0,
+        min(pair_edges$edge_distance_m),
+        NA_real_
+      ),
+      edge_median_m = ifelse(
+        nrow(pair_edges) > 0,
+        stats::median(pair_edges$edge_distance_m),
+        NA_real_
+      ),
+      edge_p90_m = ifelse(
+        nrow(pair_edges) > 0,
+        as.numeric(stats::quantile(pair_edges$edge_distance_m, 0.90)),
+        NA_real_
+      ),
+      edge_p95_m = ifelse(
+        nrow(pair_edges) > 0,
+        as.numeric(stats::quantile(pair_edges$edge_distance_m, 0.95)),
+        NA_real_
+      ),
+      edge_p99_m = ifelse(
+        nrow(pair_edges) > 0,
+        as.numeric(stats::quantile(pair_edges$edge_distance_m, 0.99)),
+        NA_real_
+      ),
+      edge_max_m = ifelse(
+        nrow(pair_edges) > 0,
+        max(pair_edges$edge_distance_m),
+        NA_real_
+      ),
+      analysis_universe = "active_transition_only_excluding_0to0"
+    )
+
+    for (threshold_m in edge_diagnostic_thresholds_m) {
+      pair_diag[[paste0("n_edges_gt_", threshold_m, "m")]] <- ifelse(
+        nrow(pair_edges) > 0,
+        sum(pair_edges$edge_distance_m > threshold_m),
+        0L
+      )
+
+      pair_diag[[paste0("prop_edges_gt_", threshold_m, "m")]] <- ifelse(
+        nrow(pair_edges) > 0,
+        mean(pair_edges$edge_distance_m > threshold_m),
+        NA_real_
+      )
+    }
+
+    spatial_transition_neighbor_diagnostics_list[[
+      paste(k_key, pair_value, sep = "__")
+    ]] <- pair_diag
+
+    universe_row <- transition_spatial_universe_summary |>
+      dplyr::filter(phase_pair == pair_value)
 
     for (event_name in spatial_transition_global_events) {
-      event_value <- as.integer(pair_spatial$transition == event_name)
-      event_value[is.na(event_value)] <- 0L
+      event_value <- as.integer(
+        pair_spatial$transition == event_name
+      )
 
-      transition_global_rows[[idx]] <- global_moran_one(
+      transition_global_rows[[global_idx]] <- global_moran_one(
         event_value,
         paste0(pair_value, "__", event_name),
-        listw_w,
+        listw_w_pair,
         model_id
       ) |>
         dplyr::transmute(
           model_id,
           k = k_eff,
           phase_pair = pair_value,
-          phase_pair_order = {
-            ord <- stats::na.omit(pair_spatial$phase_pair_order)
-            if (length(ord) > 0) ord[[1]] else NA_integer_
-          },
+          phase_pair_order = universe_row$phase_pair_order[[1]],
           event_type = event_name,
           event_count = sum(event_value),
           event_prevalence = mean(event_value),
           n_points,
+          n_apparent_absence_continue_excluded =
+            universe_row$n_apparent_absence_continue_excluded[[1]],
+          analysis_universe =
+            "active_transition_only_excluding_0to0",
           moran_i,
           expectation,
           variance,
           statistic,
           p_value
         )
-      idx <- idx + 1L
+
+      global_idx <- global_idx + 1L
     }
   }
 
-  spatial_transition_global_list[[as.character(k_value)]] <- dplyr::bind_rows(
+  spatial_transition_global_list[[k_key]] <- dplyr::bind_rows(
     transition_global_rows
   )
 }
 
-spatial_neighbor_edges <- dplyr::bind_rows(spatial_neighbor_edges_all)
-spatial_neighbor_diagnostics <- dplyr::bind_rows(spatial_neighbor_diagnostics_list)
-spatial_global_moran <- dplyr::bind_rows(spatial_global_moran_list)
-spatial_transition_global_moran <- dplyr::bind_rows(spatial_transition_global_list)
+spatial_transition_neighbor_edges <- dplyr::bind_rows(
+  spatial_transition_neighbor_edges_list
+)
 
-# continuity index weight感度 × kNN感度
+spatial_transition_neighbor_diagnostics <- dplyr::bind_rows(
+  spatial_transition_neighbor_diagnostics_list
+)
+
+spatial_transition_global_moran <- dplyr::bind_rows(
+  spatial_transition_global_list
+)
+
+# ------------------------------------------------------------------
+# D. continuity index weight感度 × kNN感度
+# ------------------------------------------------------------------
 continuity_weight_spatial_robustness <- purrr::map_dfr(
   spatial_k_values,
   function(k_value) {
     model <- knn_models[[as.character(k_value)]]
 
     weight_wide <- continuity_weight_scores |>
-      dplyr::select(place_id, weight_set, continuity_index) |>
+      dplyr::select(
+        place_id,
+        weight_set,
+        continuity_index
+      ) |>
       tidyr::pivot_wider(
         names_from = weight_set,
         values_from = continuity_index
@@ -2572,7 +2843,10 @@ continuity_weight_spatial_robustness <- purrr::map_dfr(
     ordered <- spatial_base_metric_sf |>
       sf::st_drop_geometry() |>
       dplyr::select(place_id) |>
-      dplyr::left_join(weight_wide, by = "place_id")
+      dplyr::left_join(
+        weight_wide,
+        by = "place_id"
+      )
 
     purrr::map_dfr(
       continuity_weight_sets$weight_set,
@@ -2592,7 +2866,15 @@ continuity_weight_spatial_robustness <- purrr::map_dfr(
   }
 )
 
-# fixed-distance calibration: 初回・空間条件変更時のみ
+# ------------------------------------------------------------------
+# E. fixed-distance calibration
+#
+# continuity/gap:
+#   全地点モデル
+#
+# transition:
+#   時期ペアごとのactive地点だけで距離近傍を再構築
+# ------------------------------------------------------------------
 fixed_distance_neighbor_diagnostics <- tibble::tibble()
 fixed_distance_global_moran <- tibble::tibble()
 fixed_distance_transition_global_moran <- tibble::tibble()
@@ -2604,17 +2886,24 @@ if (isTRUE(run_fixed_distance_calibration)) {
 
   for (band_m in fixed_distance_bands_m) {
     model_id <- paste0("fixed_", band_m, "m")
+
     nb_band <- spdep::dnearneigh(
       coords_metric,
       d1 = 0,
       d2 = band_m,
       longlat = FALSE
     )
-    listw_band <- spdep::nb2listw(nb_band, style = "W", zero.policy = TRUE)
+
+    listw_band <- spdep::nb2listw(
+      nb_band,
+      style = "W",
+      zero.policy = TRUE
+    )
+
     degree <- lengths(nb_band)
 
     fixed_diag_list[[as.character(band_m)]] <- tibble::tibble(
-      model_id,
+      model_id = model_id,
       distance_band_m = band_m,
       n_points = nrow(spatial_base_metric_sf),
       n_isolates = sum(degree == 0),
@@ -2633,114 +2922,254 @@ if (isTRUE(run_fixed_distance_calibration)) {
           listw_band,
           model_id
         ) |>
-          dplyr::mutate(distance_band_m = band_m)
+          dplyr::mutate(
+            distance_band_m = band_m
+          )
       }
     )
 
     transition_rows <- list()
-    idx <- 1L
-    for (pair_value in phase_transition_pair_table$phase_pair) {
-      pair_data <- phase_transition_long |>
-        dplyr::filter(phase_pair == pair_value) |>
-        dplyr::select(place_id, transition)
+    transition_idx <- 1L
 
-      pair_spatial <- spatial_base_metric_sf |>
-        sf::st_drop_geometry() |>
-        dplyr::select(place_id) |>
-        dplyr::left_join(pair_data, by = "place_id")
+    for (pair_value in phase_transition_pair_table$phase_pair) {
+      pair_spatial <- transition_pair_spatial_list[[pair_value]]
+      pair_coords <- sf::st_coordinates(pair_spatial)
+
+      pair_model_id <- paste0(
+        "transition_",
+        safe_name(pair_value),
+        "_fixed_",
+        band_m,
+        "m"
+      )
+
+      nb_band_pair <- spdep::dnearneigh(
+        pair_coords,
+        d1 = 0,
+        d2 = band_m,
+        longlat = FALSE
+      )
+
+      listw_band_pair <- spdep::nb2listw(
+        nb_band_pair,
+        style = "W",
+        zero.policy = TRUE
+      )
+
+      universe_row <- transition_spatial_universe_summary |>
+        dplyr::filter(
+          phase_pair == pair_value
+        )
 
       for (event_name in spatial_transition_global_events) {
-        event_value <- as.integer(pair_spatial$transition == event_name)
-        event_value[is.na(event_value)] <- 0L
+        event_value <- as.integer(
+          pair_spatial$transition == event_name
+        )
 
-        transition_rows[[idx]] <- global_moran_one(
+        transition_rows[[transition_idx]] <- global_moran_one(
           event_value,
           paste0(pair_value, "__", event_name),
-          listw_band,
-          model_id
+          listw_band_pair,
+          pair_model_id
         ) |>
           dplyr::mutate(
             distance_band_m = band_m,
             phase_pair = pair_value,
+            phase_pair_order = universe_row$phase_pair_order[[1]],
             event_type = event_name,
             event_count = sum(event_value),
-            event_prevalence = mean(event_value)
+            event_prevalence = mean(event_value),
+            n_apparent_absence_continue_excluded =
+              universe_row$n_apparent_absence_continue_excluded[[1]],
+            analysis_universe =
+              "active_transition_only_excluding_0to0"
           )
-        idx <- idx + 1L
+
+        transition_idx <- transition_idx + 1L
       }
     }
 
-    fixed_transition_list[[as.character(band_m)]] <- dplyr::bind_rows(transition_rows)
+    fixed_transition_list[[as.character(band_m)]] <- dplyr::bind_rows(
+      transition_rows
+    )
   }
 
-  fixed_distance_neighbor_diagnostics <- dplyr::bind_rows(fixed_diag_list)
-  fixed_distance_global_moran <- dplyr::bind_rows(fixed_global_list)
-  fixed_distance_transition_global_moran <- dplyr::bind_rows(fixed_transition_list)
+  fixed_distance_neighbor_diagnostics <- dplyr::bind_rows(
+    fixed_diag_list
+  )
+
+  fixed_distance_global_moran <- dplyr::bind_rows(
+    fixed_global_list
+  )
+
+  fixed_distance_transition_global_moran <- dplyr::bind_rows(
+    fixed_transition_list
+  )
 }
 
+# ------------------------------------------------------------------
+# F. CSV output
+# ------------------------------------------------------------------
 readr::write_csv(
   spatial_neighbor_diagnostics,
-  file.path(csv_dir, "spatial_neighbor_diagnostics.csv")
+  file.path(
+    csv_dir,
+    "spatial_neighbor_diagnostics.csv"
+  )
 )
+
 readr::write_csv(
   spatial_neighbor_edges,
-  file.path(csv_dir, "spatial_neighbor_edges.csv")
+  file.path(
+    csv_dir,
+    "spatial_neighbor_edges.csv"
+  )
 )
+
 readr::write_csv(
   spatial_global_moran,
-  file.path(csv_dir, "spatial_global_moran_knn_sensitivity.csv")
+  file.path(
+    csv_dir,
+    "spatial_global_moran_knn_sensitivity.csv"
+  )
 )
+
+readr::write_csv(
+  transition_spatial_universe_summary,
+  file.path(
+    csv_dir,
+    "spatial_transition_universe_summary.csv"
+  )
+)
+
+readr::write_csv(
+  spatial_transition_neighbor_diagnostics,
+  file.path(
+    csv_dir,
+    "spatial_transition_neighbor_diagnostics.csv"
+  )
+)
+
+readr::write_csv(
+  spatial_transition_neighbor_edges,
+  file.path(
+    csv_dir,
+    "spatial_transition_neighbor_edges.csv"
+  )
+)
+
 readr::write_csv(
   spatial_transition_global_moran,
-  file.path(csv_dir, "spatial_transition_global_moran_knn_sensitivity.csv")
+  file.path(
+    csv_dir,
+    "spatial_transition_global_moran_knn_sensitivity.csv"
+  )
 )
+
 readr::write_csv(
   continuity_weight_spatial_robustness,
-  file.path(csv_dir, "continuity_weight_spatial_robustness.csv")
+  file.path(
+    csv_dir,
+    "continuity_weight_spatial_robustness.csv"
+  )
 )
+
 readr::write_csv(
   fixed_distance_neighbor_diagnostics,
-  file.path(csv_dir, "fixed_distance_neighbor_diagnostics.csv")
+  file.path(
+    csv_dir,
+    "fixed_distance_neighbor_diagnostics.csv"
+  )
 )
+
 readr::write_csv(
   fixed_distance_global_moran,
-  file.path(csv_dir, "fixed_distance_global_moran.csv")
+  file.path(
+    csv_dir,
+    "fixed_distance_global_moran.csv"
+  )
 )
+
 readr::write_csv(
   fixed_distance_transition_global_moran,
-  file.path(csv_dir, "fixed_distance_transition_global_moran.csv")
+  file.path(
+    csv_dir,
+    "fixed_distance_transition_global_moran.csv"
+  )
 )
 
 print(spatial_neighbor_diagnostics)
-print(spatial_global_moran)
+print(transition_spatial_universe_summary)
+print(spatial_transition_neighbor_diagnostics)
+print(spatial_transition_global_moran)
 ```
 
 # 18. local-spatial-statistics
 
-**目的**：Local Moranはraw/BHを併記してBH後を結論基準とし、binary eventはrare eventにLocal Join Count、common eventにLocal G*＋補集合Join Countを適用する。
+**目的**：Local Moranはraw/BHを併記してBH後を結論基準とする。Transitionのbinary eventは各時期ペアの0→0除外後のactive地点だけを対象とし、rare eventにLocal Join Count、common eventにLocal G*＋補集合Join Countを適用する。
 
 ```{r c18_local_spatial_statistics, eval=TRUE}
 extract_sim_p <- function(df, fallback_z = NULL) {
-  sim_cols <- grep("Sim", names(df), value = TRUE, fixed = TRUE)
-  sim_cols <- sim_cols[!grepl("folded", sim_cols, ignore.case = TRUE)]
+  sim_cols <- grep(
+    "Sim",
+    names(df),
+    value = TRUE,
+    fixed = TRUE
+  )
+
+  sim_cols <- sim_cols[
+    !grepl(
+      "folded",
+      sim_cols,
+      ignore.case = TRUE
+    )
+  ]
 
   if (length(sim_cols) > 0) {
-    return(as.numeric(df[[sim_cols[1]]]))
+    return(
+      as.numeric(
+        df[[sim_cols[1]]]
+      )
+    )
   }
 
-  p_cols <- grep("^Pr", names(df), value = TRUE)
+  p_cols <- grep(
+    "^Pr",
+    names(df),
+    value = TRUE
+  )
+
   if (length(p_cols) > 0) {
-    return(as.numeric(df[[p_cols[1]]]))
+    return(
+      as.numeric(
+        df[[p_cols[1]]]
+      )
+    )
   }
 
   if (!is.null(fallback_z)) {
-    return(2 * stats::pnorm(abs(fallback_z), lower.tail = FALSE))
+    return(
+      2 * stats::pnorm(
+        abs(fallback_z),
+        lower.tail = FALSE
+      )
+    )
   }
 
-  rep(NA_real_, nrow(df))
+  rep(
+    NA_real_,
+    nrow(df)
+  )
 }
 
-local_moran_one <- function(place_ids, x, metric_name, listw_object, model_id, k_value) {
+local_moran_one <- function(
+  place_ids,
+  x,
+  metric_name,
+  listw_object,
+  model_id,
+  k_value
+) {
   x <- as.numeric(x)
 
   if (
@@ -2764,10 +3193,24 @@ local_moran_one <- function(place_ids, x, metric_name, listw_object, model_id, k
     ))
   }
 
-  x_mean <- mean(x, na.rm = TRUE)
-  x_sd <- stats::sd(x, na.rm = TRUE)
-  z_value <- if (!is.finite(x_sd) || x_sd == 0) {
-    rep(0, length(x))
+  x_mean <- mean(
+    x,
+    na.rm = TRUE
+  )
+
+  x_sd <- stats::sd(
+    x,
+    na.rm = TRUE
+  )
+
+  z_value <- if (
+    !is.finite(x_sd) ||
+      x_sd == 0
+  ) {
+    rep(
+      0,
+      length(x)
+    )
   } else {
     (x - x_mean) / x_sd
   }
@@ -2809,18 +3252,60 @@ local_moran_one <- function(place_ids, x, metric_name, listw_object, model_id, k
   }
 
   rdf <- as.data.frame(res)
-  local_i <- if ("Ii" %in% names(rdf)) rdf[["Ii"]] else rdf[[1]]
-  local_z <- if ("Z.Ii" %in% names(rdf)) rdf[["Z.Ii"]] else rep(NA_real_, nrow(rdf))
-  p_raw <- extract_sim_p(rdf, local_z)
-  p_bh <- stats::p.adjust(p_raw, method = "BH")
+
+  local_i <- if (
+    "Ii" %in% names(rdf)
+  ) {
+    rdf[["Ii"]]
+  } else {
+    rdf[[1]]
+  }
+
+  local_z <- if (
+    "Z.Ii" %in% names(rdf)
+  ) {
+    rdf[["Z.Ii"]]
+  } else {
+    rep(
+      NA_real_,
+      nrow(rdf)
+    )
+  }
+
+  p_raw <- extract_sim_p(
+    rdf,
+    local_z
+  )
+
+  p_bh <- stats::p.adjust(
+    p_raw,
+    method = "BH"
+  )
 
   classify_lisa <- function(p_value) {
     dplyr::case_when(
-      p_value <= spatial_alpha & z_value > 0 & spatial_lag_z > 0 ~ "High-High",
-      p_value <= spatial_alpha & z_value < 0 & spatial_lag_z < 0 ~ "Low-Low",
-      p_value <= spatial_alpha & z_value > 0 & spatial_lag_z < 0 ~ "High-Low",
-      p_value <= spatial_alpha & z_value < 0 & spatial_lag_z > 0 ~ "Low-High",
-      TRUE ~ "not_significant"
+      p_value <= spatial_alpha &
+        z_value > 0 &
+        spatial_lag_z > 0 ~
+        "High-High",
+
+      p_value <= spatial_alpha &
+        z_value < 0 &
+        spatial_lag_z < 0 ~
+        "Low-Low",
+
+      p_value <= spatial_alpha &
+        z_value > 0 &
+        spatial_lag_z < 0 ~
+        "High-Low",
+
+      p_value <= spatial_alpha &
+        z_value < 0 &
+        spatial_lag_z > 0 ~
+        "Low-High",
+
+      TRUE ~
+        "not_significant"
     )
   }
 
@@ -2852,6 +3337,7 @@ local_joincount_binary <- function(
 ) {
   event_value <- as.integer(event_value)
   event_value[is.na(event_value)] <- 0L
+
   prevalence <- mean(event_value)
 
   base <- tibble::tibble(
@@ -2868,19 +3354,37 @@ local_joincount_binary <- function(
     local_z = NA_real_,
     p_raw = NA_real_,
     p_bh = NA_real_,
-    local_class_raw = dplyr::if_else(event_value == 1L, "event_not_tested", "non_event"),
-    local_class_bh = dplyr::if_else(event_value == 1L, "event_not_tested", "non_event"),
+    local_class_raw = dplyr::if_else(
+      event_value == 1L,
+      "event_not_tested",
+      "non_event"
+    ),
+    local_class_bh = dplyr::if_else(
+      event_value == 1L,
+      "event_not_tested",
+      "non_event"
+    ),
     test_status = "not_tested"
   )
 
-  if (sum(event_value) == 0L || sum(event_value) == length(event_value)) {
+  if (
+    sum(event_value) == 0L ||
+      sum(event_value) == length(event_value)
+  ) {
     base$test_status <- "not_tested_no_contrast"
     return(base)
   }
 
   event_factor <- factor(
-    ifelse(event_value == 1L, "event", "other"),
-    levels = c("other", "event")
+    ifelse(
+      event_value == 1L,
+      "event",
+      "other"
+    ),
+    levels = c(
+      "other",
+      "event"
+    )
   )
 
   jr <- tryCatch(
@@ -2901,37 +3405,100 @@ local_joincount_binary <- function(
   }
 
   jdf <- as.data.frame(jr)
-  stat_value <- if ("BB" %in% names(jdf)) as.numeric(jdf[["BB"]]) else rep(NA_real_, nrow(jdf))
-  p_raw <- if ("Pr()" %in% names(jdf)) as.numeric(jdf[["Pr()"]]) else rep(NA_real_, nrow(jdf))
-  p_bh <- rep(NA_real_, length(p_raw))
-  tested_rows <- event_value == 1L & is.finite(p_raw)
+
+  stat_value <- if (
+    "BB" %in% names(jdf)
+  ) {
+    as.numeric(
+      jdf[["BB"]]
+    )
+  } else {
+    rep(
+      NA_real_,
+      nrow(jdf)
+    )
+  }
+
+  p_raw <- if (
+    "Pr()" %in% names(jdf)
+  ) {
+    as.numeric(
+      jdf[["Pr()"]]
+    )
+  } else {
+    rep(
+      NA_real_,
+      nrow(jdf)
+    )
+  }
+
+  p_bh <- rep(
+    NA_real_,
+    length(p_raw)
+  )
+
+  tested_rows <- event_value == 1L &
+    is.finite(p_raw)
+
   if (any(tested_rows)) {
-    p_bh[tested_rows] <- stats::p.adjust(p_raw[tested_rows], method = "BH")
+    p_bh[tested_rows] <- stats::p.adjust(
+      p_raw[tested_rows],
+      method = "BH"
+    )
   }
 
   base$local_stat <- stat_value
   base$p_raw <- p_raw
   base$p_bh <- p_bh
+
   base$local_class_raw <- dplyr::case_when(
-    event_value == 0L ~ "non_event",
-    p_raw <= spatial_alpha & stat_value > 0 ~ "event_cluster",
-    TRUE ~ "event_not_significant"
+    event_value == 0L ~
+      "non_event",
+
+    p_raw <= spatial_alpha &
+      stat_value > 0 ~
+      "event_cluster",
+
+    TRUE ~
+      "event_not_significant"
   )
+
   base$local_class_bh <- dplyr::case_when(
-    event_value == 0L ~ "non_event",
-    p_bh <= spatial_alpha & stat_value > 0 ~ "event_cluster",
-    TRUE ~ "event_not_significant"
+    event_value == 0L ~
+      "non_event",
+
+    p_bh <= spatial_alpha &
+      stat_value > 0 ~
+      "event_cluster",
+
+    TRUE ~
+      "event_not_significant"
   )
+
   base$test_status <- "tested_local_join_count"
+
   base
 }
 
-local_gstar_binary <- function(place_ids, event_value, phase_pair_value, event_name, model) {
+local_gstar_binary <- function(
+  place_ids,
+  event_value,
+  phase_pair_value,
+  event_name,
+  model
+) {
   event_value <- as.numeric(event_value)
   event_value[is.na(event_value)] <- 0
 
-  nb_star <- spdep::include.self(model$nb)
-  listw_star <- spdep::nb2listw(nb_star, style = "B", zero.policy = TRUE)
+  nb_star <- spdep::include.self(
+    model$nb
+  )
+
+  listw_star <- spdep::nb2listw(
+    nb_star,
+    style = "B",
+    zero.policy = TRUE
+  )
 
   gr <- tryCatch(
     spdep::localG_perm(
@@ -2967,19 +3534,40 @@ local_gstar_binary <- function(place_ids, event_value, phase_pair_value, event_n
   }
 
   z_value <- as.numeric(gr)
-  internals <- attr(gr, "internals")
+  internals <- attr(
+    gr,
+    "internals"
+  )
+
   p_raw <- if (!is.null(internals)) {
-    extract_sim_p(as.data.frame(internals), z_value)
+    extract_sim_p(
+      as.data.frame(internals),
+      z_value
+    )
   } else {
-    2 * stats::pnorm(abs(z_value), lower.tail = FALSE)
+    2 * stats::pnorm(
+      abs(z_value),
+      lower.tail = FALSE
+    )
   }
-  p_bh <- stats::p.adjust(p_raw, method = "BH")
+
+  p_bh <- stats::p.adjust(
+    p_raw,
+    method = "BH"
+  )
 
   classify_g <- function(p_value) {
     dplyr::case_when(
-      p_value <= spatial_alpha & z_value > 0 ~ "event_hotspot",
-      p_value <= spatial_alpha & z_value < 0 ~ "event_coldspot",
-      TRUE ~ "not_significant"
+      p_value <= spatial_alpha &
+        z_value > 0 ~
+        "event_hotspot",
+
+      p_value <= spatial_alpha &
+        z_value < 0 ~
+        "event_coldspot",
+
+      TRUE ~
+        "not_significant"
     )
   }
 
@@ -3003,11 +3591,15 @@ local_gstar_binary <- function(place_ids, event_value, phase_pair_value, event_n
   )
 }
 
-# Local Moran: k=4/8/12すべて
+# ------------------------------------------------------------------
+# A. continuity / gap Local Moran:
+#    従来どおり全空間分析対象地点を使用
+# ------------------------------------------------------------------
 spatial_local_lisa <- purrr::map_dfr(
   spatial_k_values,
   function(k_value) {
     model <- knn_models[[as.character(k_value)]]
+
     purrr::map_dfr(
       available_spatial_metrics,
       function(metric_name) {
@@ -3024,30 +3616,53 @@ spatial_local_lisa <- purrr::map_dfr(
   }
 )
 
-# binary transition local statistics
+# ------------------------------------------------------------------
+# B. binary transition local statistics
+#
+# 各時期ペアの0->0を除外したactive地点だけを使う。
+# kNNもそのactive地点だけで作り直したモデルを使用する。
+# common / rare判定のprevalenceもactive地点を分母とする。
+# ------------------------------------------------------------------
 transition_local_list <- list()
-idx <- 1L
+transition_local_idx <- 1L
 
 for (k_value in spatial_k_values) {
-  model <- knn_models[[as.character(k_value)]]
+  k_key <- as.character(k_value)
 
   for (pair_value in phase_transition_pair_table$phase_pair) {
-    pair_data <- phase_transition_long |>
-      dplyr::filter(phase_pair == pair_value) |>
-      dplyr::select(place_id, transition)
+    pair_spatial <- transition_pair_spatial_list[[pair_value]]
+    model <- transition_knn_models[[k_key]][[pair_value]]
 
-    pair_spatial <- spatial_base_metric_sf |>
-      sf::st_drop_geometry() |>
-      dplyr::select(place_id) |>
-      dplyr::left_join(pair_data, by = "place_id")
+    if (
+      !identical(
+        as.character(pair_spatial$place_id),
+        as.character(model$place_ids)
+      )
+    ) {
+      stop(
+        "Transition local analysisの地点順がkNNモデルと一致しません: ",
+        pair_value,
+        " k=",
+        k_value
+      )
+    }
+
+    universe_row <- transition_spatial_universe_summary |>
+      dplyr::filter(
+        phase_pair == pair_value
+      )
 
     for (event_name in spatial_transition_binary_events) {
-      event_value <- as.integer(pair_spatial$transition == event_name)
-      event_value[is.na(event_value)] <- 0L
-      prevalence <- mean(event_value)
+      event_value <- as.integer(
+        pair_spatial$transition == event_name
+      )
+
+      prevalence <- mean(
+        event_value
+      )
 
       if (prevalence <= 0.5) {
-        transition_local_list[[idx]] <- local_joincount_binary(
+        one_result <- local_joincount_binary(
           pair_spatial$place_id,
           event_value,
           pair_value,
@@ -3055,22 +3670,44 @@ for (k_value in spatial_k_values) {
           model,
           target_label = "event",
           method_label = "local_join_count"
-        )
-        idx <- idx + 1L
+        ) |>
+          dplyr::mutate(
+            n_active_transition_points = nrow(pair_spatial),
+            n_apparent_absence_continue_excluded =
+              universe_row$n_apparent_absence_continue_excluded[[1]],
+            analysis_universe =
+              "active_transition_only_excluding_0to0"
+          )
+
+        transition_local_list[[transition_local_idx]] <- one_result
+        transition_local_idx <- transition_local_idx + 1L
+
       } else {
-        # common eventそのものはLocal G*で評価
-        transition_local_list[[idx]] <- local_gstar_binary(
+        # common event:
+        # eventそのものはLocal G*で、active地点内での高低を確認する。
+        g_result <- local_gstar_binary(
           pair_spatial$place_id,
           event_value,
           pair_value,
           event_name,
           model
-        )
-        idx <- idx + 1L
+        ) |>
+          dplyr::mutate(
+            n_active_transition_points = nrow(pair_spatial),
+            n_apparent_absence_continue_excluded =
+              universe_row$n_apparent_absence_continue_excluded[[1]],
+            analysis_universe =
+              "active_transition_only_excluding_0to0"
+          )
 
-        # 補集合はrare eventなのでLocal Join Countで診断
+        transition_local_list[[transition_local_idx]] <- g_result
+        transition_local_idx <- transition_local_idx + 1L
+
+        # 補集合もactive地点内で定義する。
+        # 0->0はすでに母集団から除外されているので補集合へ混入しない。
         complement_value <- 1L - event_value
-        transition_local_list[[idx]] <- local_joincount_binary(
+
+        complement_result <- local_joincount_binary(
           pair_spatial$place_id,
           complement_value,
           pair_value,
@@ -3078,18 +3715,33 @@ for (k_value in spatial_k_values) {
           model,
           target_label = "non_event_complement",
           method_label = "local_join_count_complement"
-        )
-        idx <- idx + 1L
+        ) |>
+          dplyr::mutate(
+            n_active_transition_points = nrow(pair_spatial),
+            n_apparent_absence_continue_excluded =
+              universe_row$n_apparent_absence_continue_excluded[[1]],
+            analysis_universe =
+              "active_transition_only_excluding_0to0"
+          )
+
+        transition_local_list[[transition_local_idx]] <- complement_result
+        transition_local_idx <- transition_local_idx + 1L
       }
     }
   }
 }
 
-spatial_transition_local_binary <- dplyr::bind_rows(transition_local_list)
+spatial_transition_local_binary <- dplyr::bind_rows(
+  transition_local_list
+)
 
-# QGIS向けにはprimary kのみをwide/longで保持
+# ------------------------------------------------------------------
+# C. QGIS向けprimary k
+# ------------------------------------------------------------------
 primary_lisa <- spatial_local_lisa |>
-  dplyr::filter(k == spatial_primary_k)
+  dplyr::filter(
+    k == spatial_primary_k
+  )
 
 primary_lisa_wide <- primary_lisa |>
   dplyr::select(
@@ -3114,34 +3766,67 @@ primary_lisa_wide <- primary_lisa |>
   )
 
 spatial_continuity_gap_lisa_sf <- chronology_place_continuity_sf |>
-  dplyr::select(place_id) |>
-  dplyr::left_join(primary_lisa_wide, by = "place_id")
-
-spatial_transition_local_binary_sf <- chronology_place_continuity_sf |>
-  dplyr::select(place_id) |>
-  dplyr::left_join(
-    spatial_transition_local_binary |>
-      dplyr::filter(k == spatial_primary_k),
-    by = "place_id"
+  dplyr::select(
+    place_id
   ) |>
-  dplyr::filter(!is.na(phase_pair))
+  dplyr::left_join(
+    primary_lisa_wide,
+    by = "place_id"
+  )
 
+# inner_joinにすることで、0->0除外後のTransition空間分析対象地点だけを
+# GPKGのTransition localレイヤへ出力する。
+spatial_transition_local_binary_sf <- chronology_place_continuity_sf |>
+  dplyr::select(
+    place_id
+  ) |>
+  dplyr::inner_join(
+    spatial_transition_local_binary |>
+      dplyr::filter(
+        k == spatial_primary_k
+      ),
+    by = "place_id"
+  )
+
+# ------------------------------------------------------------------
+# D. CSV output
+# ------------------------------------------------------------------
 readr::write_csv(
   spatial_local_lisa,
-  file.path(csv_dir, "spatial_local_moran_knn_sensitivity.csv")
+  file.path(
+    csv_dir,
+    "spatial_local_moran_knn_sensitivity.csv"
+  )
 )
+
 readr::write_csv(
   spatial_transition_local_binary,
-  file.path(csv_dir, "spatial_transition_local_binary.csv")
+  file.path(
+    csv_dir,
+    "spatial_transition_local_binary.csv"
+  )
 )
 
 print(
   spatial_local_lisa |>
-    dplyr::count(k, metric, lisa_class_bh, name = "n_places")
+    dplyr::count(
+      k,
+      metric,
+      lisa_class_bh,
+      name = "n_places"
+    )
 )
+
 print(
   spatial_transition_local_binary |>
-    dplyr::count(k, phase_pair, event_type, method, local_class_bh, name = "n_places")
+    dplyr::count(
+      k,
+      phase_pair,
+      event_type,
+      method,
+      local_class_bh,
+      name = "n_places"
+    )
 )
 ```
 
@@ -3622,12 +4307,16 @@ print(p_run_gap_timeline)
 
 # 22. export-gpkg-and-metadata
 
-**目的**：QGIS用の分析結果をGPKGへ出力し、分析日時・Rmdバージョン・パラメータ・入力由来情報を属性テーブルとして保存する。
+**目的**：QGIS用の分析結果をGPKGへ出力する。Transitionについては0→0除外後の時期ペア別kNN edgeと局所分析結果を別レイヤで保存し、分析日時・Rmdバージョン・パラメータ・入力由来情報も属性テーブルとして保存する。
 
 ```{r c22_export_gpkg_and_metadata, eval=TRUE}
-# primary kのedge geometry
+# ------------------------------------------------------------------
+# A. continuity / gap primary k edge geometry
+# ------------------------------------------------------------------
 primary_edges <- spatial_neighbor_edges |>
-  dplyr::filter(k == spatial_primary_k)
+  dplyr::filter(
+    k == spatial_primary_k
+  )
 
 if (nrow(primary_edges) > 0) {
   primary_edge_geometry <- sf::st_sfc(
@@ -3636,8 +4325,16 @@ if (nrow(primary_edges) > 0) {
       function(i) {
         sf::st_linestring(
           rbind(
-            coords_metric[primary_edges$from_index[i], , drop = FALSE],
-            coords_metric[primary_edges$to_index[i], , drop = FALSE]
+            coords_metric[
+              primary_edges$from_index[i],
+              ,
+              drop = FALSE
+            ],
+            coords_metric[
+              primary_edges$to_index[i],
+              ,
+              drop = FALSE
+            ]
           )
         )
       }
@@ -3650,70 +4347,191 @@ if (nrow(primary_edges) > 0) {
     geometry = primary_edge_geometry
   ) |>
     sf::st_transform(4326)
+
 } else {
   spatial_neighbor_edges_primary_sf <- make_empty_point_sf()
 }
 
-# 同一座標groupを1点としてQGISでも確認可能にする。
+# ------------------------------------------------------------------
+# B. Transition primary k edge geometry
+#
+# Transitionは各時期ペアのactive地点だけからkNNを再構築しているため、
+# 通常の全地点kNN edgeとは別レイヤとして出力する。
+# ------------------------------------------------------------------
+primary_transition_edges <- spatial_transition_neighbor_edges |>
+  dplyr::filter(
+    k == spatial_primary_k
+  )
+
+spatial_point_xy_lookup <- tibble::tibble(
+  place_id = spatial_base_metric_sf$place_id,
+  x_metric = coords_metric[, 1],
+  y_metric = coords_metric[, 2]
+)
+
+primary_transition_edges_xy <- primary_transition_edges |>
+  dplyr::left_join(
+    spatial_point_xy_lookup |>
+      dplyr::rename(
+        from_place_id = place_id,
+        from_x = x_metric,
+        from_y = y_metric
+      ),
+    by = "from_place_id"
+  ) |>
+  dplyr::left_join(
+    spatial_point_xy_lookup |>
+      dplyr::rename(
+        to_place_id = place_id,
+        to_x = x_metric,
+        to_y = y_metric
+      ),
+    by = "to_place_id"
+  )
+
+if (nrow(primary_transition_edges_xy) > 0) {
+  if (
+    any(
+      !is.finite(primary_transition_edges_xy$from_x) |
+        !is.finite(primary_transition_edges_xy$from_y) |
+        !is.finite(primary_transition_edges_xy$to_x) |
+        !is.finite(primary_transition_edges_xy$to_y)
+    )
+  ) {
+    stop(
+      "Transition kNN edgeのgeometry生成に必要な座標が見つかりません。"
+    )
+  }
+
+  primary_transition_edge_geometry <- sf::st_sfc(
+    lapply(
+      seq_len(nrow(primary_transition_edges_xy)),
+      function(i) {
+        sf::st_linestring(
+          matrix(
+            c(
+              primary_transition_edges_xy$from_x[i],
+              primary_transition_edges_xy$from_y[i],
+              primary_transition_edges_xy$to_x[i],
+              primary_transition_edges_xy$to_y[i]
+            ),
+            ncol = 2,
+            byrow = TRUE
+          )
+        )
+      }
+    ),
+    crs = spatial_analysis_crs
+  )
+
+  spatial_transition_neighbor_edges_primary_sf <- sf::st_sf(
+    primary_transition_edges_xy,
+    geometry = primary_transition_edge_geometry
+  ) |>
+    sf::st_transform(4326)
+
+} else {
+  spatial_transition_neighbor_edges_primary_sf <- make_empty_point_sf()
+}
+
+# ------------------------------------------------------------------
+# C. coordinate groups
+# ------------------------------------------------------------------
 coordinate_group_sf <- coordinate_group_summary |>
   sf::st_as_sf(
-    coords = c("lon_value", "lat_value"),
+    coords = c(
+      "lon_value",
+      "lat_value"
+    ),
     crs = 4326,
     remove = FALSE
   )
 
+# ------------------------------------------------------------------
+# D. GPKG spatial layers
+# ------------------------------------------------------------------
 gpkg_written <- c(
   chronology_place_continuity = write_gpkg_layer_safe(
     chronology_place_continuity_sf,
     continuity_gpkg,
     "chronology_place_continuity"
   ),
+
   chronology_place_phase_presence = write_gpkg_layer_safe(
     chronology_place_phase_presence_sf,
     continuity_gpkg,
     "chronology_place_phase_presence"
   ),
+
   chronology_phase_transition = write_gpkg_layer_safe(
     chronology_phase_transition_sf,
     continuity_gpkg,
     "chronology_phase_transition"
   ),
+
   chronology_run_events = write_gpkg_layer_safe(
     chronology_run_events_sf,
     continuity_gpkg,
     "chronology_run_events"
   ),
+
   chronology_gap_events = write_gpkg_layer_safe(
     chronology_gap_events_sf,
     continuity_gpkg,
     "chronology_gap_events"
   ),
+
   coordinate_groups = write_gpkg_layer_safe(
     coordinate_group_sf,
     continuity_gpkg,
     "coordinate_groups"
   ),
+
   spatial_knn_edges_primary = write_gpkg_layer_safe(
     spatial_neighbor_edges_primary_sf,
     continuity_gpkg,
-    paste0("spatial_knn_edges_k", spatial_primary_k)
+    paste0(
+      "spatial_knn_edges_k",
+      spatial_primary_k
+    )
   ),
+
+  spatial_transition_knn_edges_primary = write_gpkg_layer_safe(
+    spatial_transition_neighbor_edges_primary_sf,
+    continuity_gpkg,
+    paste0(
+      "spatial_transition_knn_edges_k",
+      spatial_primary_k
+    )
+  ),
+
   spatial_local_moran_primary = write_gpkg_layer_safe(
     spatial_continuity_gap_lisa_sf,
     continuity_gpkg,
-    paste0("spatial_local_moran_k", spatial_primary_k)
+    paste0(
+      "spatial_local_moran_k",
+      spatial_primary_k
+    )
   ),
+
   spatial_transition_local_primary = write_gpkg_layer_safe(
     spatial_transition_local_binary_sf,
     continuity_gpkg,
-    paste0("spatial_transition_local_k", spatial_primary_k)
+    paste0(
+      "spatial_transition_local_k",
+      spatial_primary_k
+    )
   )
 )
 
-# ------------------------------------------------------------
-# GPKG metadata / parameter tables
-# ------------------------------------------------------------
-input_md5 <- unname(tools::md5sum(input_csv))
+# ------------------------------------------------------------------
+# E. GPKG metadata / parameter tables
+# ------------------------------------------------------------------
+input_md5 <- unname(
+  tools::md5sum(
+    input_csv
+  )
+)
 
 analysis_metadata <- tibble::tibble(
   run_id = analysis_run_id,
@@ -3723,12 +4541,21 @@ analysis_metadata <- tibble::tibble(
   input_md5 = input_md5,
   n_input_rows = nrow(chronology_input_all),
   n_analysis_rows = nrow(chronology_raw),
-  phase_definition = paste(phase_cols, collapse = "->"),
+  phase_definition = paste(
+    phase_cols,
+    collapse = "->"
+  ),
   time_weighting = "not_used",
-  activity_domain_policy = "source-specific preprocessing; all_land_use always available",
-  coordinate_policy_primary = "separate_records_original_coordinates",
-  coordinate_policy_sensitivity = "aggregate_exact_same_coordinates",
-  map_rendering_policy = "QGIS; no geometry jitter"
+  activity_domain_policy =
+    "source-specific preprocessing; all_land_use always available",
+  coordinate_policy_primary =
+    "separate_records_original_coordinates",
+  coordinate_policy_sensitivity =
+    "aggregate_exact_same_coordinates",
+  transition_spatial_universe_policy =
+    "exclude apparent_absence_continue (0->0) within each phase pair; rebuild neighbors within active transition points",
+  map_rendering_policy =
+    "QGIS; no geometry jitter"
 )
 
 analysis_parameters <- tibble::tibble(
@@ -3745,54 +4572,116 @@ analysis_parameters <- tibble::tibble(
     "spatial_permutations",
     "run_fixed_distance_calibration",
     "fixed_distance_bands_m",
-    "local_p_adjustment"
+    "local_p_adjustment",
+    "transition_spatial_universe",
+    "transition_neighbors_rebuilt_by_phase_pair"
   ),
   value = c(
     baseline_weight_set,
-    paste(cluster_k_candidates, collapse = ","),
+    paste(
+      cluster_k_candidates,
+      collapse = ","
+    ),
     as.character(selected_cluster_k),
     as.character(cluster_stability_repeats),
     as.character(landscape_min_places),
     as.character(spatial_analysis_crs),
-    paste(spatial_k_values, collapse = ","),
+    paste(
+      spatial_k_values,
+      collapse = ","
+    ),
     as.character(spatial_primary_k),
     as.character(spatial_alpha),
     as.character(spatial_permutations),
     as.character(run_fixed_distance_calibration),
-    paste(fixed_distance_bands_m, collapse = ","),
-    "BH"
+    paste(
+      fixed_distance_bands_m,
+      collapse = ","
+    ),
+    "BH",
+    "active_transition_only_excluding_0to0",
+    "TRUE"
   )
 )
 
 input_provenance <- tibble::tibble(
-  source_group = c("input", "GSI_landform", "W07_watershed"),
+  source_group = c(
+    "input",
+    "GSI_landform",
+    "W07_watershed"
+  ),
   source_id = c(
     basename(input_csv),
-    if ("gsi_landform_source" %in% names(chronology_raw)) {
-      paste(unique(stats::na.omit(chronology_raw$gsi_landform_source)), collapse = ";")
-    } else {
-      NA_character_
-    },
-    if ("w07_source_id" %in% names(chronology_raw)) {
-      paste(unique(stats::na.omit(chronology_raw$w07_source_id)), collapse = ";")
-    } else {
-      NA_character_
-    }
-  ),
-  source_detail = c(
-    input_md5,
-    if ("gsi_landform_zoom" %in% names(chronology_raw)) {
-      paste0(
-        "zoom=",
-        paste(unique(stats::na.omit(chronology_raw$gsi_landform_zoom)), collapse = ";")
+
+    if (
+      "gsi_landform_source" %in%
+        names(chronology_raw)
+    ) {
+      paste(
+        unique(
+          stats::na.omit(
+            chronology_raw$gsi_landform_source
+          )
+        ),
+        collapse = ";"
       )
     } else {
       NA_character_
     },
-    if ("w07_source_year" %in% names(chronology_raw)) {
+
+    if (
+      "w07_source_id" %in%
+        names(chronology_raw)
+    ) {
+      paste(
+        unique(
+          stats::na.omit(
+            chronology_raw$w07_source_id
+          )
+        ),
+        collapse = ";"
+      )
+    } else {
+      NA_character_
+    }
+  ),
+
+  source_detail = c(
+    input_md5,
+
+    if (
+      "gsi_landform_zoom" %in%
+        names(chronology_raw)
+    ) {
+      paste0(
+        "zoom=",
+        paste(
+          unique(
+            stats::na.omit(
+              chronology_raw$gsi_landform_zoom
+            )
+          ),
+          collapse = ";"
+        )
+      )
+    } else {
+      NA_character_
+    },
+
+    if (
+      "w07_source_year" %in%
+        names(chronology_raw)
+    ) {
       paste0(
         "year=",
-        paste(unique(stats::na.omit(chronology_raw$w07_source_year)), collapse = ";")
+        paste(
+          unique(
+            stats::na.omit(
+              chronology_raw$w07_source_year
+            )
+          ),
+          collapse = ";"
+        )
       )
     } else {
       NA_character_
@@ -3802,9 +4691,22 @@ input_provenance <- tibble::tibble(
 
 spatial_model_diagnostics <- dplyr::bind_rows(
   spatial_neighbor_diagnostics |>
-    dplyr::mutate(model_family = "knn"),
+    dplyr::mutate(
+      model_family =
+        "knn_all_spatial_points"
+    ),
+
+  spatial_transition_neighbor_diagnostics |>
+    dplyr::mutate(
+      model_family =
+        "transition_knn_active_only"
+    ),
+
   fixed_distance_neighbor_diagnostics |>
-    dplyr::mutate(model_family = "fixed_distance")
+    dplyr::mutate(
+      model_family =
+        "fixed_distance_all_spatial_points"
+    )
 )
 
 write_gpkg_attribute_table(
@@ -3813,18 +4715,21 @@ write_gpkg_attribute_table(
   "analysis_metadata",
   "Analysis run metadata"
 )
+
 write_gpkg_attribute_table(
   analysis_parameters,
   continuity_gpkg,
   "analysis_parameters",
   "Analysis parameter set"
 )
+
 write_gpkg_attribute_table(
   input_provenance,
   continuity_gpkg,
   "input_provenance",
   "Input and environmental-data provenance"
 )
+
 write_gpkg_attribute_table(
   spatial_model_diagnostics,
   continuity_gpkg,
@@ -3834,19 +4739,34 @@ write_gpkg_attribute_table(
 
 readr::write_csv(
   analysis_metadata,
-  file.path(csv_dir, "analysis_metadata.csv")
+  file.path(
+    csv_dir,
+    "analysis_metadata.csv"
+  )
 )
+
 readr::write_csv(
   analysis_parameters,
-  file.path(csv_dir, "analysis_parameters.csv")
+  file.path(
+    csv_dir,
+    "analysis_parameters.csv"
+  )
 )
+
 readr::write_csv(
   input_provenance,
-  file.path(csv_dir, "input_provenance.csv")
+  file.path(
+    csv_dir,
+    "input_provenance.csv"
+  )
 )
 
 print(gpkg_written)
-cat("GPKG written:", continuity_gpkg, "\n")
+cat(
+  "GPKG written:",
+  continuity_gpkg,
+  "\n"
+)
 ```
 
 # 23. check-outputs
@@ -3900,6 +4820,9 @@ expected_csv <- c(
   "spatial_neighbor_diagnostics.csv",
   "spatial_neighbor_edges.csv",
   "spatial_global_moran_knn_sensitivity.csv",
+  "spatial_transition_universe_summary.csv",
+  "spatial_transition_neighbor_diagnostics.csv",
+  "spatial_transition_neighbor_edges.csv",
   "spatial_transition_global_moran_knn_sensitivity.csv",
   "continuity_weight_spatial_robustness.csv",
   "fixed_distance_neighbor_diagnostics.csv",
@@ -3967,6 +4890,7 @@ expected_gpkg_layers <- c(
   "chronology_gap_events",
   "coordinate_groups",
   paste0("spatial_knn_edges_k", spatial_primary_k),
+  paste0("spatial_transition_knn_edges_k", spatial_primary_k),
   paste0("spatial_local_moran_k", spatial_primary_k),
   paste0("spatial_transition_local_k", spatial_primary_k)
 )

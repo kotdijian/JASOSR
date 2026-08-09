@@ -1,0 +1,6 @@
+weight_set,w_presence,w_run,w_gapfree
+baseline,0.35,0.4,0.25
+balanced,0.3333333333333333,0.3333333333333333,0.3333333333333333
+coverage_heavy,0.5,0.3,0.2
+run_heavy,0.25,0.55,0.2
+gap_span_heavy,0.3,0.3,0.4

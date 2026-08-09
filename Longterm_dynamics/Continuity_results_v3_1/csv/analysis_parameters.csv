@@ -1,0 +1,16 @@
+parameter,value
+baseline_weight_set,baseline
+cluster_k_candidates,"2,3,4,5,6,7,8,9,10"
+selected_cluster_k,2
+cluster_stability_repeats,50
+landscape_min_places,20
+spatial_analysis_crs,6677
+spatial_k_values,"4,8,12"
+spatial_primary_k,8
+spatial_alpha,0.05
+spatial_permutations,999
+run_fixed_distance_calibration,TRUE
+fixed_distance_bands_m,"1000,2000,5000"
+local_p_adjustment,BH
+transition_spatial_universe,active_transition_only_excluding_0to0
+transition_neighbors_rebuilt_by_phase_pair,TRUE
