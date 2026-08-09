@@ -1,0 +1,6 @@
+item,n_rows,note
+input_rows_after_em_exclusion,5628,EMのみ地点を除外した後の行数
+excluded_special_site_type_rows,597,排他的特殊SiteTypeとして主分析から除外した行数
+analysis_rows_after_special_exclusion,5031,特殊SiteType除外後に主分析へ進める行数
+kept_rows_with_special_site_type_flag,492,除外せず、特殊SiteTypeフラグを付与して保持した行数
+kept_rows_with_special_function_flag,235,城館・居館・窯・生産・工房系など、特殊機能フラグを付与して保持した行数

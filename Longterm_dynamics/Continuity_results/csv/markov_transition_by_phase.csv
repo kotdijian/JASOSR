@@ -1,0 +1,25 @@
+phase_pair,phase_pair_order,from_state,to_state,n_transitions,n_from_state,transition_probability,transition_label
+Pa->Jo,1,apparent_absence,apparent_absence,1125,4337,0.25939589578049344,apparent_absence -> apparent_absence
+Pa->Jo,1,apparent_absence,presence,3212,4337,0.7406041042195066,apparent_absence -> presence
+Pa->Jo,1,presence,apparent_absence,60,694,0.08645533141210375,presence -> apparent_absence
+Pa->Jo,1,presence,presence,634,694,0.9135446685878963,presence -> presence
+Jo->Ya,2,apparent_absence,apparent_absence,1087,1185,0.9172995780590717,apparent_absence -> apparent_absence
+Jo->Ya,2,apparent_absence,presence,98,1185,0.08270042194092828,apparent_absence -> presence
+Jo->Ya,2,presence,apparent_absence,3297,3846,0.8572542901716068,presence -> apparent_absence
+Jo->Ya,2,presence,presence,549,3846,0.14274570982839313,presence -> presence
+Ya->Ko,3,apparent_absence,apparent_absence,3632,4384,0.8284671532846716,apparent_absence -> apparent_absence
+Ya->Ko,3,apparent_absence,presence,752,4384,0.17153284671532848,apparent_absence -> presence
+Ya->Ko,3,presence,apparent_absence,289,647,0.446676970633694,presence -> apparent_absence
+Ya->Ko,3,presence,presence,358,647,0.5533230293663061,presence -> presence
+Ko->Na,4,apparent_absence,apparent_absence,2867,3921,0.7311910226982913,apparent_absence -> apparent_absence
+Ko->Na,4,apparent_absence,presence,1054,3921,0.2688089773017088,apparent_absence -> presence
+Ko->Na,4,presence,apparent_absence,459,1110,0.4135135135135135,presence -> apparent_absence
+Ko->Na,4,presence,presence,651,1110,0.5864864864864865,presence -> presence
+Na->He,5,apparent_absence,apparent_absence,2637,3326,0.7928442573662057,apparent_absence -> apparent_absence
+Na->He,5,apparent_absence,presence,689,3326,0.20715574263379435,apparent_absence -> presence
+Na->He,5,presence,apparent_absence,220,1705,0.12903225806451613,presence -> apparent_absence
+Na->He,5,presence,presence,1485,1705,0.8709677419354839,presence -> presence
+He->Me,6,apparent_absence,apparent_absence,2472,2857,0.8652432621631082,apparent_absence -> apparent_absence
+He->Me,6,apparent_absence,presence,385,2857,0.13475673783689185,apparent_absence -> presence
+He->Me,6,presence,apparent_absence,1603,2174,0.7373505059797608,presence -> apparent_absence
+He->Me,6,presence,presence,571,2174,0.2626494940202392,presence -> presence

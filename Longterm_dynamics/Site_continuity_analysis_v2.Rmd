@@ -1,0 +1,3782 @@
+---
+title: "13Tokyo chronology continuity analysis"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+# 01. setup
+
+**目的**：必要パッケージ、共通関数を読み込む。
+
+```{r c01_setup, eval=TRUE, message=FALSE, warning=FALSE}
+required_packages <- c(
+  "readr",
+  "dplyr",
+  "tidyr",
+  "tibble",
+  "stringr",
+  "purrr",
+  "ggplot2",
+  "sf",
+  "spdep"
+)
+
+missing_packages <- required_packages[!vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "次のRパッケージを先にインストールしてください: ",
+    paste(missing_packages, collapse = ", ")
+  )
+}
+
+invisible(lapply(required_packages, library, character.only = TRUE))
+
+if (utils::packageVersion("spdep") < utils::package_version("1.2-7")) {
+  stop(
+    "spdep >= 1.2-7 が必要です。現在のversion: ",
+    as.character(utils::packageVersion("spdep"))
+  )
+}
+
+clamp01 <- function(x) {
+  pmax(0, pmin(1, x))
+}
+
+normalize01 <- function(x) {
+  if (all(is.na(x))) {
+    return(rep(NA_real_, length(x)))
+  }
+
+  rng <- range(x, na.rm = TRUE)
+
+  if (!is.finite(rng[1]) || !is.finite(rng[2]) || rng[1] == rng[2]) {
+    return(ifelse(is.na(x), NA_real_, 0))
+  }
+
+  (x - rng[1]) / (rng[2] - rng[1])
+}
+
+safe_name <- function(x) {
+  x |>
+    stringr::str_replace_all("[^A-Za-z0-9_]+", "_") |>
+    stringr::str_replace_all("_+", "_") |>
+    stringr::str_replace_all("^_|_$", "")
+}
+
+write_gpkg_layer_safe <- function(x, dsn, layer) {
+  if (!inherits(x, "sf")) {
+    stop("GPKG出力対象がsfではありません: ", layer)
+  }
+
+  if (nrow(x) == 0) {
+    warning("0件のためGPKGレイヤ出力をスキップします: ", layer)
+    return(invisible(NULL))
+  }
+
+  dir.create(dirname(dsn), recursive = TRUE, showWarnings = FALSE)
+
+  if (file.exists(dsn)) {
+    existing_layers <- sf::st_layers(dsn)$name
+
+    if (layer %in% existing_layers) {
+      sf::st_delete(dsn, layer = layer, quiet = TRUE)
+    }
+  }
+
+  sf::st_write(
+    x,
+    dsn = dsn,
+    layer = layer,
+    quiet = TRUE
+  )
+
+  invisible(NULL)
+}
+```
+# 02. paths-and-parameters
+
+**目的**：入力CSV、解析対象時期列、除外条件、時系列・空間分析パラメータ、出力先を定義する。入力は `13Tokyo_chronology.csv` のみを使用する。
+
+```{r c02_paths_and_parameters, eval=TRUE}
+input_csv <- "13Tokyo_chronology.csv"
+
+results_dir <- "Continuity_results"
+csv_dir <- file.path(results_dir, "csv")
+figure_dir <- file.path(results_dir, "figure")
+gpkg_dir <- file.path(results_dir, "gpkg")
+continuity_gpkg <- file.path(gpkg_dir, "Continuity.gpkg")
+
+for (d in c(results_dir, csv_dir, figure_dir, gpkg_dir)) {
+  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+}
+
+# 連続性判定に使用する時期列。この順序でrun/gap/transitionを判定する。
+phase_cols <- c("Pa", "Jo", "Ya", "Ko", "Na", "He", "Me")
+
+# EMのみ地点の判定にだけ使用する時期列候補。
+# 連続性判定には使用しない。
+chronology_marker_cols_candidate <- c(
+  "Pa", "Jo", "Ya", "Ko", "As", "An", "Na", "He", "Me",
+  "Ka", "Nb", "Mu", "Se", "EM", "AM", "Ed", "Md", "Pr", "Un"
+)
+
+exclude_em_only <- TRUE
+em_col <- "EM"
+
+phase_label_table <- tibble::tibble(
+  phase_code = phase_cols,
+  phase_order = seq_along(phase_cols),
+  phase_label_ja = c(
+    "旧石器",
+    "縄文",
+    "弥生",
+    "古墳",
+    "奈良",
+    "平安",
+    "中世"
+  ),
+  phase_label_en = c(
+    "Palaeolithic",
+    "Jomon",
+    "Yayoi",
+    "Kofun",
+    "Nara",
+    "Heian",
+    "Medieval"
+  )
+)
+
+preferred_id_col <- "JASID"
+lon_col <- "Lon"
+lat_col <- "Lat"
+
+metadata_cols_candidate <- c(
+  "JASID",
+  "LGC",
+  "Site_no",
+  "SiteName_furigana",
+  "SiteName_original",
+  "Address",
+  "Chronology",
+  "SiteType",
+  "ArchaeologicalFeatures",
+  "MajorArtefacts",
+  "Lon",
+  "Lat"
+)
+
+# sequence clustering
+cluster_k <- 5L
+
+sequence_class_levels <- c(
+  "no_presence",
+  "single_phase",
+  "continuous_2phase",
+  "continuous_3_4phase",
+  "continuous_5_7phase",
+  "intermittent_gap1",
+  "intermittent_gap2plus",
+  "unclassified"
+)
+
+transition_levels <- c(
+  "continue",
+  "drop",
+  "new"
+)
+
+# Markov transition model
+markov_state_levels <- c(
+  "apparent_absence",
+  "presence"
+)
+
+# Change-point screening
+# 7時期しかないため、多重変化点の推測統計ではなく単一break候補を探索する。
+change_point_min_segment <- 2L
+
+# Spatial cluster analysis
+# 東京都域を想定したJGD2011 / Japan Plane Rectangular CS IX。
+spatial_analysis_crs <- 6677L
+spatial_k <- 8L
+spatial_alpha <- 0.05
+spatial_seed <- 20260808L
+spatial_permutations <- 999L
+
+spatial_continuous_metrics <- c(
+  "continuity_index",
+  "longest_run_length",
+  "gap_count",
+  "max_gap_length",
+  "intermittency_index"
+)
+
+# Global Moran's Iはactive transition全3種を対象とする。
+spatial_transition_global_events <- c(
+  "continue",
+  "drop",
+  "new"
+)
+
+# Local Join Countは転換を直接表すdrop/newを対象とする。
+# rare binary event向けの検定なので、各phase pairで出現率 > 0.5 の場合は局所検定を行わない。
+spatial_transition_joincount_events <- c(
+  "drop",
+  "new"
+)
+
+cat("input_csv:", input_csv, "\n")
+cat("phase order:", paste(phase_cols, collapse = " -> "), "\n")
+cat("exclude_em_only:", exclude_em_only, "\n")
+cat("spatial_analysis_crs:", spatial_analysis_crs, "\n")
+cat("spatial_k:", spatial_k, "\n")
+cat("spatial_permutations:", spatial_permutations, "\n")
+cat("results_dir:", results_dir, "\n")
+cat("continuity_gpkg:", continuity_gpkg, "\n")
+```
+# 03. read-input-csv-and-exclude-em-only
+
+**目的**：`13Tokyo_chronology.csv` を読み込み、EMのみ地点を分析対象から除外する。除外した地点の件数のみ記録する。
+
+```{r c03_read_input_csv_and_exclude_em_only, eval=TRUE}
+if (!file.exists(input_csv)) {
+  stop("入力CSVが見つかりません: ", input_csv)
+}
+
+chronology_raw_all <- readr::read_csv(
+  input_csv,
+  show_col_types = FALSE,
+  locale = readr::locale(encoding = "UTF-8")
+)
+
+missing_phase_cols <- setdiff(phase_cols, names(chronology_raw_all))
+
+if (length(missing_phase_cols) > 0) {
+  stop(
+    "入力CSVに解析対象列がありません: ",
+    paste(missing_phase_cols, collapse = ", ")
+  )
+}
+
+if (!preferred_id_col %in% names(chronology_raw_all)) {
+  chronology_raw_all <- chronology_raw_all |>
+    dplyr::mutate(JASID = dplyr::row_number())
+}
+
+chronology_marker_cols <- intersect(
+  chronology_marker_cols_candidate,
+  names(chronology_raw_all)
+)
+
+if (exclude_em_only && em_col %in% chronology_marker_cols) {
+  marker_numeric <- chronology_raw_all |>
+    dplyr::select(dplyr::all_of(chronology_marker_cols)) |>
+    dplyr::mutate(
+      dplyr::across(
+        dplyr::everything(),
+        ~ tidyr::replace_na(
+          suppressWarnings(readr::parse_number(as.character(.x))),
+          0
+        )
+      )
+    )
+
+  other_marker_cols <- setdiff(chronology_marker_cols, em_col)
+
+  em_only_flag <- marker_numeric[[em_col]] > 0 &
+    rowSums(marker_numeric[, other_marker_cols, drop = FALSE] > 0, na.rm = TRUE) == 0
+} else {
+  em_only_flag <- rep(FALSE, nrow(chronology_raw_all))
+}
+
+em_only_exclusion_summary <- tibble::tibble(
+  item = c(
+    "input_rows_total",
+    "excluded_em_only_rows",
+    "analysis_rows_after_exclusion"
+  ),
+  n_rows = c(
+    nrow(chronology_raw_all),
+    sum(em_only_flag, na.rm = TRUE),
+    sum(!em_only_flag, na.rm = TRUE)
+  ),
+  note = c(
+    "入力CSVの全行数",
+    "EMのみ地点として分析対象から除外した行数。除外行の個別一覧は出力しない。",
+    "Pa, Jo, Ya, Ko, Na, He, Me による連続性分析へ進める行数"
+  )
+)
+
+readr::write_csv(
+  em_only_exclusion_summary,
+  file.path(csv_dir, "em_only_exclusion_summary.csv")
+)
+
+chronology_raw <- chronology_raw_all |>
+  dplyr::filter(!em_only_flag) |>
+  dplyr::mutate(
+    place_id = as.character(.data[[preferred_id_col]])
+  )
+
+metadata_cols <- intersect(metadata_cols_candidate, names(chronology_raw))
+
+input_column_summary <- tibble::tibble(
+  column_name = names(chronology_raw_all),
+  used_for_continuity = column_name %in% phase_cols,
+  used_for_em_only_exclusion = column_name %in% chronology_marker_cols,
+  used_as_metadata = column_name %in% metadata_cols | column_name == "place_id",
+  note = dplyr::case_when(
+    column_name %in% phase_cols ~ "連続性判定に使用",
+    column_name == em_col ~ "EMのみ地点の除外判定に使用。連続性判定には不使用。",
+    column_name %in% setdiff(chronology_marker_cols, phase_cols) ~ "EMのみ地点の除外判定にのみ使用。連続性判定には不使用。",
+    column_name %in% metadata_cols ~ "ID・表示・地図化用メタデータ",
+    TRUE ~ "不使用"
+  )
+)
+
+print(em_only_exclusion_summary)
+print(input_column_summary)
+
+readr::write_csv(
+  input_column_summary,
+  file.path(csv_dir, "input_column_usage_summary.csv")
+)
+```
+# 04. special-sitetype-exclusions-and-flags
+
+**目的**：EMのみ地点を除外した後のデータに対して、排他的に特殊SiteTypeのみで構成される地点を主分析から除外し、複合SiteTypeや特殊機能カテゴリには後続分析用のフラグを付与する。
+
+```{r c04_special_sitetype_exclusions_and_flags, eval=TRUE}
+site_type_col <- "SiteType"
+chronology_text_col <- "Chronology"
+
+parse_marker_num <- function(x) {
+  tidyr::replace_na(
+    suppressWarnings(readr::parse_number(as.character(x))),
+    0
+  )
+}
+
+split_site_type_values <- function(x) {
+  x <- tidyr::replace_na(as.character(x), "")
+  x <- stringr::str_replace_all(x, "[、,，;；/／・+＋|｜\\n\\r\\t]", ";")
+  x <- stringr::str_replace_all(x, "\\s+", ";")
+  x <- stringr::str_replace_all(x, ";+", ";")
+  x <- stringr::str_replace_all(x, "^;|;$", "")
+
+  stringr::str_split(x, ";") |>
+    lapply(function(v) {
+      v <- stringr::str_squish(v)
+      unique(v[nzchar(v)])
+    })
+}
+
+is_kofun_mortuary_token <- function(x) {
+  stringr::str_detect(
+    x,
+    "^(古墳|古墳群|古墳\\?|横穴墓|横穴墓群|横穴|地下式横穴|地下式横穴墓|方形周溝墓|周溝墓|墳墓|墳墓群|その他の墓|墓|墓地)$"
+  )
+}
+
+is_me_mound_burial_token <- function(x) {
+  stringr::str_detect(
+    x,
+    "^(塚|経塚|一字一石経塚|供養塚|板碑|板碑出土地|墓|墓地|墳墓|墳墓群|その他の墓|単独出土地)$"
+  ) &
+    !stringr::str_detect(x, "貝塚")
+}
+
+is_exclusion_site_type_token <- function(x) {
+  is_kofun_mortuary_token(x) | is_me_mound_burial_token(x)
+}
+
+is_special_function_token <- function(x) {
+  stringr::str_detect(
+    x,
+    "城館|居館|館跡|城跡|窯|窯跡|生産|工房|製鉄|鍛冶"
+  )
+}
+
+target_marker_numeric <- chronology_raw |>
+  dplyr::select(dplyr::all_of(phase_cols)) |>
+  dplyr::mutate(
+    dplyr::across(
+      dplyr::everything(),
+      parse_marker_num
+    )
+  )
+
+ko_single_phase_flag <- target_marker_numeric[["Ko"]] > 0 &
+  rowSums(
+    target_marker_numeric[, setdiff(phase_cols, "Ko"), drop = FALSE] > 0,
+    na.rm = TRUE
+  ) == 0
+
+me_single_phase_flag <- target_marker_numeric[["Me"]] > 0 &
+  rowSums(
+    target_marker_numeric[, setdiff(phase_cols, "Me"), drop = FALSE] > 0,
+    na.rm = TRUE
+  ) == 0
+
+if (site_type_col %in% names(chronology_raw)) {
+  site_type_tokens <- split_site_type_values(chronology_raw[[site_type_col]])
+
+  site_type_tokens_text <- vapply(
+    site_type_tokens,
+    function(v) paste(v, collapse = ";"),
+    character(1)
+  )
+
+  has_kofun_mortuary_site_type <- vapply(
+    site_type_tokens,
+    function(v) length(v) > 0 &&
+      any(vapply(v, is_kofun_mortuary_token, logical(1))),
+    logical(1)
+  )
+
+  has_me_mound_burial_site_type <- vapply(
+    site_type_tokens,
+    function(v) length(v) > 0 &&
+      any(vapply(v, is_me_mound_burial_token, logical(1))),
+    logical(1)
+  )
+
+  has_exclusion_site_type <- vapply(
+    site_type_tokens,
+    function(v) length(v) > 0 &&
+      any(vapply(v, is_exclusion_site_type_token, logical(1))),
+    logical(1)
+  )
+
+  exclusive_exclusion_site_type <- vapply(
+    site_type_tokens,
+    function(v) length(v) > 0 &&
+      all(vapply(v, is_exclusion_site_type_token, logical(1))),
+    logical(1)
+  )
+
+  has_special_function_site_type <- vapply(
+    site_type_tokens,
+    function(v) length(v) > 0 &&
+      any(vapply(v, is_special_function_token, logical(1))),
+    logical(1)
+  )
+} else {
+  site_type_tokens_text <- rep(NA_character_, nrow(chronology_raw))
+  has_kofun_mortuary_site_type <- rep(FALSE, nrow(chronology_raw))
+  has_me_mound_burial_site_type <- rep(FALSE, nrow(chronology_raw))
+  has_exclusion_site_type <- rep(FALSE, nrow(chronology_raw))
+  exclusive_exclusion_site_type <- rep(FALSE, nrow(chronology_raw))
+  has_special_function_site_type <- rep(FALSE, nrow(chronology_raw))
+}
+
+chronology_sitetype_checked <- chronology_raw |>
+  dplyr::mutate(
+    site_type_tokens = site_type_tokens_text,
+    ko_single_phase = ko_single_phase_flag,
+    me_single_phase = me_single_phase_flag,
+    has_kofun_mortuary_site_type = has_kofun_mortuary_site_type,
+    has_me_mound_burial_site_type = has_me_mound_burial_site_type,
+    has_exclusion_site_type = has_exclusion_site_type,
+    exclusive_exclusion_site_type = exclusive_exclusion_site_type,
+    has_special_function_site_type = has_special_function_site_type,
+
+    exclude_special_site_type = dplyr::case_when(
+      ko_single_phase &
+        has_kofun_mortuary_site_type &
+        exclusive_exclusion_site_type ~ TRUE,
+      me_single_phase &
+        has_me_mound_burial_site_type &
+        exclusive_exclusion_site_type ~ TRUE,
+      TRUE ~ FALSE
+    ),
+
+    special_site_type_exclusion_reason = dplyr::case_when(
+      ko_single_phase &
+        has_kofun_mortuary_site_type &
+        exclusive_exclusion_site_type ~
+        "ko_single_phase_exclusive_mortuary_site_type",
+      me_single_phase &
+        has_me_mound_burial_site_type &
+        exclusive_exclusion_site_type ~
+        "me_single_phase_exclusive_mound_burial_or_isolated_site_type",
+      TRUE ~ NA_character_
+    ),
+
+    has_special_site_type_flag = has_exclusion_site_type |
+      has_special_function_site_type,
+
+    special_site_type_class = dplyr::case_when(
+      has_kofun_mortuary_site_type & has_me_mound_burial_site_type ~
+        "multiple_special_site_types",
+      has_kofun_mortuary_site_type ~
+        "kofun_mortuary",
+      has_me_mound_burial_site_type ~
+        "mound_burial_or_isolated",
+      has_special_function_site_type ~
+        "special_function",
+      TRUE ~ NA_character_
+    )
+  )
+
+special_category_excluded_points <- chronology_sitetype_checked |>
+  dplyr::filter(exclude_special_site_type) |>
+  dplyr::select(
+    place_id,
+    dplyr::any_of(c(site_type_col, chronology_text_col)),
+    dplyr::all_of(phase_cols),
+    site_type_tokens,
+    special_site_type_exclusion_reason
+  )
+
+special_category_exclusion_summary <- chronology_sitetype_checked |>
+  dplyr::summarise(
+    input_rows_after_em_exclusion = dplyr::n(),
+    excluded_special_site_type_rows = sum(exclude_special_site_type, na.rm = TRUE),
+    analysis_rows_after_special_exclusion = sum(!exclude_special_site_type, na.rm = TRUE),
+    kept_rows_with_special_site_type_flag = sum(
+      !exclude_special_site_type & has_special_site_type_flag,
+      na.rm = TRUE
+    ),
+    kept_rows_with_special_function_flag = sum(
+      !exclude_special_site_type & has_special_function_site_type,
+      na.rm = TRUE
+    )
+  ) |>
+  tidyr::pivot_longer(
+    dplyr::everything(),
+    names_to = "item",
+    values_to = "n_rows"
+  ) |>
+  dplyr::mutate(
+    note = dplyr::case_when(
+      item == "input_rows_after_em_exclusion" ~
+        "EMのみ地点を除外した後の行数",
+      item == "excluded_special_site_type_rows" ~
+        "排他的特殊SiteTypeとして主分析から除外した行数",
+      item == "analysis_rows_after_special_exclusion" ~
+        "特殊SiteType除外後に主分析へ進める行数",
+      item == "kept_rows_with_special_site_type_flag" ~
+        "除外せず、特殊SiteTypeフラグを付与して保持した行数",
+      item == "kept_rows_with_special_function_flag" ~
+        "城館・居館・窯・生産・工房系など、特殊機能フラグを付与して保持した行数",
+      TRUE ~ NA_character_
+    )
+  )
+
+special_site_type_flagged_points <- chronology_sitetype_checked |>
+  dplyr::filter(
+    !exclude_special_site_type,
+    has_special_site_type_flag
+  ) |>
+  dplyr::select(
+    place_id,
+    dplyr::any_of(c(site_type_col, chronology_text_col)),
+    dplyr::all_of(phase_cols),
+    site_type_tokens,
+    has_special_site_type_flag,
+    has_special_function_site_type,
+    special_site_type_class
+  )
+
+special_function_flagged_points <- special_site_type_flagged_points |>
+  dplyr::filter(has_special_function_site_type)
+
+special_site_type_flag_summary <- special_site_type_flagged_points |>
+  dplyr::count(
+    special_site_type_class,
+    has_special_function_site_type,
+    name = "n_rows"
+  )
+
+special_function_flag_summary <- special_function_flagged_points |>
+  dplyr::count(
+    special_site_type_class,
+    name = "n_rows"
+  )
+
+readr::write_csv(
+  special_category_exclusion_summary,
+  file.path(csv_dir, "special_category_exclusion_summary.csv")
+)
+
+readr::write_csv(
+  special_category_excluded_points,
+  file.path(csv_dir, "special_category_excluded_points.csv")
+)
+
+readr::write_csv(
+  special_site_type_flag_summary,
+  file.path(csv_dir, "special_site_type_flag_summary.csv")
+)
+
+readr::write_csv(
+  special_site_type_flagged_points,
+  file.path(csv_dir, "special_site_type_flagged_points.csv")
+)
+
+readr::write_csv(
+  special_function_flag_summary,
+  file.path(csv_dir, "special_function_flag_summary.csv")
+)
+
+readr::write_csv(
+  special_function_flagged_points,
+  file.path(csv_dir, "special_function_flagged_points.csv")
+)
+
+chronology_raw <- chronology_sitetype_checked |>
+  dplyr::filter(!exclude_special_site_type)
+
+print(special_category_exclusion_summary)
+print(special_site_type_flag_summary)
+print(special_function_flag_summary)
+```
+# 05. build-phase-table
+
+**目的**：解析対象時期の順序表を作成する。
+
+```{r c05_build_phase_table, eval=TRUE}
+chronology_phase_table <- phase_label_table |>
+  dplyr::mutate(
+    phase_id = phase_code,
+    sequence_position = phase_order
+  ) |>
+  dplyr::select(
+    phase_id,
+    phase_code,
+    phase_order,
+    sequence_position,
+    phase_label_ja,
+    phase_label_en
+  )
+
+print(chronology_phase_table)
+
+readr::write_csv(
+  chronology_phase_table,
+  file.path(csv_dir, "chronology_phase_table.csv")
+)
+```
+# 06. build-place-phase-tables
+
+**目的**：特殊SiteType除外後のデータについて、対象7列だけを使い、地点×時期のwide/long表を作成する。`0` は分析上の `apparent_absence` として扱う。
+
+```{r c06_build_place_phase_tables, eval=TRUE}
+special_metadata_cols <- intersect(
+  c(
+    "site_type_tokens",
+    "ko_single_phase",
+    "me_single_phase",
+    "has_kofun_mortuary_site_type",
+    "has_me_mound_burial_site_type",
+    "has_exclusion_site_type",
+    "exclusive_exclusion_site_type",
+    "has_special_function_site_type",
+    "has_special_site_type_flag",
+    "special_site_type_class"
+  ),
+  names(chronology_raw)
+)
+
+analysis_metadata_cols <- unique(
+  c(
+    setdiff(metadata_cols, c("place_id", phase_cols)),
+    special_metadata_cols
+  )
+)
+
+phase_value_table <- chronology_raw |>
+  dplyr::select(
+    place_id,
+    dplyr::any_of(analysis_metadata_cols),
+    dplyr::all_of(phase_cols)
+  ) |>
+  dplyr::mutate(
+    dplyr::across(
+      dplyr::all_of(phase_cols),
+      ~ suppressWarnings(readr::parse_number(as.character(.x)))
+    )
+  ) |>
+  dplyr::mutate(
+    dplyr::across(
+      dplyr::all_of(phase_cols),
+      ~ tidyr::replace_na(.x, 0)
+    )
+  )
+
+place_phase_long <- phase_value_table |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(phase_cols),
+    names_to = "phase_code",
+    values_to = "phase_value"
+  ) |>
+  dplyr::left_join(
+    chronology_phase_table,
+    by = "phase_code"
+  ) |>
+  dplyr::mutate(
+    presence = as.integer(phase_value > 0),
+    presence_status = dplyr::case_when(
+      presence == 1L ~ "presence",
+      TRUE ~ "apparent_absence"
+    )
+  ) |>
+  dplyr::arrange(place_id, phase_order)
+
+place_phase_sequence_wide <- place_phase_long |>
+  dplyr::select(
+    place_id,
+    phase_code,
+    presence
+  ) |>
+  tidyr::pivot_wider(
+    names_from = phase_code,
+    values_from = presence,
+    values_fill = 0
+  ) |>
+  dplyr::left_join(
+    phase_value_table |>
+      dplyr::select(place_id, dplyr::any_of(analysis_metadata_cols)),
+    by = "place_id"
+  ) |>
+  dplyr::relocate(place_id) |>
+  dplyr::mutate(
+    sequence_string = do.call(
+      paste0,
+      dplyr::across(dplyr::all_of(phase_cols))
+    ),
+    sequence_label = paste0("seq_", sequence_string)
+  )
+
+readr::write_csv(
+  place_phase_long,
+  file.path(csv_dir, "place_phase_long.csv")
+)
+
+readr::write_csv(
+  place_phase_sequence_wide,
+  file.path(csv_dir, "place_phase_sequence_wide.csv")
+)
+
+cat("places after EM-only and special SiteType exclusions:", dplyr::n_distinct(place_phase_long$place_id), "\n")
+cat("phases:", length(phase_cols), "\n")
+cat("metadata columns carried forward:", paste(analysis_metadata_cols, collapse = ", "), "\n")
+```
+# 07. run-length-analysis
+
+**目的**：地点ごとの連続出現区間を抽出する。
+
+```{r c07_run_length_analysis, eval=TRUE}
+extract_runs_one <- function(place_df) {
+  place_df <- place_df |>
+    dplyr::arrange(phase_order)
+
+  v <- place_df$presence
+  r <- rle(v == 1L)
+  ends <- cumsum(r$lengths)
+  starts <- ends - r$lengths + 1L
+  run_idx <- which(r$values)
+
+  if (length(run_idx) == 0) {
+    return(tibble::tibble(
+      place_id = character(0),
+      run_id = character(0),
+      run_index = integer(0),
+      run_start_phase = character(0),
+      run_end_phase = character(0),
+      run_start_order = integer(0),
+      run_end_order = integer(0),
+      run_length = integer(0)
+    ))
+  }
+
+  tibble::tibble(
+    place_id = place_df$place_id[1],
+    run_index = seq_along(run_idx),
+    run_start_pos = starts[run_idx],
+    run_end_pos = ends[run_idx]
+  ) |>
+    dplyr::mutate(
+      run_id = paste0(place_id, "_R", run_index),
+      run_start_phase = place_df$phase_code[run_start_pos],
+      run_end_phase = place_df$phase_code[run_end_pos],
+      run_start_order = place_df$phase_order[run_start_pos],
+      run_end_order = place_df$phase_order[run_end_pos],
+      run_length = run_end_order - run_start_order + 1L
+    ) |>
+    dplyr::select(
+      place_id,
+      run_id,
+      run_index,
+      run_start_phase,
+      run_end_phase,
+      run_start_order,
+      run_end_order,
+      run_length
+    )
+}
+
+place_run_events <- place_phase_long |>
+  dplyr::group_split(place_id) |>
+  purrr::map_dfr(extract_runs_one)
+
+print(dplyr::glimpse(place_run_events))
+
+readr::write_csv(
+  place_run_events,
+  file.path(csv_dir, "place_run_events.csv")
+)
+```
+# 08. gap-analysis
+
+**目的**：出現run間に挟まる空白区間を抽出する。ここでの空白は確定的な不在ではなく、対象時期列での `apparent_absence` を意味する。
+
+```{r c08_gap_analysis, eval=TRUE}
+extract_gaps_one <- function(run_df) {
+  run_df <- run_df |>
+    dplyr::arrange(run_start_order)
+
+  if (nrow(run_df) < 2) {
+    return(tibble::tibble(
+      place_id = character(0),
+      gap_id = character(0),
+      gap_index = integer(0),
+      gap_start_order = integer(0),
+      gap_end_order = integer(0),
+      gap_length = integer(0),
+      between_run_from = character(0),
+      between_run_to = character(0)
+    ))
+  }
+
+  out <- vector("list", nrow(run_df) - 1L)
+
+  for (i in seq_len(nrow(run_df) - 1L)) {
+    gap_start <- run_df$run_end_order[i] + 1L
+    gap_end <- run_df$run_start_order[i + 1L] - 1L
+    gap_length <- gap_end - gap_start + 1L
+
+    if (gap_length > 0) {
+      out[[i]] <- tibble::tibble(
+        place_id = run_df$place_id[1],
+        gap_index = i,
+        gap_id = paste0(run_df$place_id[1], "_G", i),
+        gap_start_order = gap_start,
+        gap_end_order = gap_end,
+        gap_length = gap_length,
+        between_run_from = run_df$run_id[i],
+        between_run_to = run_df$run_id[i + 1L]
+      )
+    }
+  }
+
+  dplyr::bind_rows(out)
+}
+
+place_gap_events <- place_run_events |>
+  dplyr::group_split(place_id) |>
+  purrr::map_dfr(extract_gaps_one) |>
+  dplyr::left_join(
+    chronology_phase_table |>
+      dplyr::select(gap_start_order = phase_order, gap_start_phase = phase_code),
+    by = "gap_start_order"
+  ) |>
+  dplyr::left_join(
+    chronology_phase_table |>
+      dplyr::select(gap_end_order = phase_order, gap_end_phase = phase_code),
+    by = "gap_end_order"
+  ) |>
+  dplyr::select(
+    place_id,
+    gap_id,
+    gap_index,
+    gap_start_phase,
+    gap_end_phase,
+    gap_start_order,
+    gap_end_order,
+    gap_length,
+    between_run_from,
+    between_run_to
+  )
+
+print(dplyr::glimpse(place_gap_events))
+
+readr::write_csv(
+  place_gap_events,
+  file.path(csv_dir, "place_gap_events.csv")
+)
+```
+---
+# 09. continuity-index-and-sequence-class
+
+**目的**：地点ごとの継続性指標、断続性指標、数値付きsequence classを作成する。継続性指標は、単一時期地点が過大評価されないよう、全7時期に対する出現幅と最長runを明示的に反映する。
+
+```{r c09_continuity_index_and_sequence_class, eval=TRUE}
+phase_n <- length(phase_cols)
+
+sequence_class_definition <- tibble::tibble(
+  sequence_class_code = c(0L, 1L, 2L, 3L, 4L, 5L, 6L),
+  sequence_class = c(
+    "no_presence",
+    "single_phase",
+    "continuous_2phase",
+    "continuous_3_4phase",
+    "continuous_5_7phase",
+    "intermittent_gap1",
+    "intermittent_gap2plus"
+  ),
+  criterion = c(
+    "presence_phase_count == 0",
+    "presence_phase_count == 1",
+    "gap_count == 0 and longest_run_length == 2",
+    "gap_count == 0 and longest_run_length is 3 or 4",
+    "gap_count == 0 and longest_run_length is 5 to 7",
+    "gap_count == 1",
+    "gap_count >= 2"
+  ),
+  interpretation = c(
+    "対象7時期に出現記録なし",
+    "1時期のみ出現",
+    "2時期連続",
+    "3〜4時期連続",
+    "5〜7時期連続",
+    "出現runの間に1回のapparent_absenceを挟む",
+    "出現runの間に2回以上のapparent_absenceを挟む"
+  )
+)
+
+readr::write_csv(
+  sequence_class_definition,
+  file.path(csv_dir, "sequence_class_definition.csv")
+)
+
+basic_presence_summary <- place_phase_long |>
+  dplyr::group_by(place_id) |>
+  dplyr::summarise(
+    presence_phase_count = sum(presence, na.rm = TRUE),
+    first_presence_order = ifelse(
+      presence_phase_count > 0,
+      min(phase_order[presence == 1L], na.rm = TRUE),
+      NA_integer_
+    ),
+    last_presence_order = ifelse(
+      presence_phase_count > 0,
+      max(phase_order[presence == 1L], na.rm = TRUE),
+      NA_integer_
+    ),
+    observed_span_phase_count = ifelse(
+      presence_phase_count > 0,
+      last_presence_order - first_presence_order + 1L,
+      0L
+    ),
+    .groups = "drop"
+  )
+
+run_summary <- place_run_events |>
+  dplyr::group_by(place_id) |>
+  dplyr::summarise(
+    run_count = dplyr::n(),
+    longest_run_length = max(run_length, na.rm = TRUE),
+    mean_run_length = mean(run_length, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+gap_summary <- place_gap_events |>
+  dplyr::group_by(place_id) |>
+  dplyr::summarise(
+    gap_count = dplyr::n(),
+    gap_phase_count = sum(gap_length, na.rm = TRUE),
+    max_gap_length = max(gap_length, na.rm = TRUE),
+    mean_gap_length = mean(gap_length, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+place_continuity_summary <- basic_presence_summary |>
+  dplyr::left_join(run_summary, by = "place_id") |>
+  dplyr::left_join(gap_summary, by = "place_id") |>
+  dplyr::left_join(
+    chronology_phase_table |>
+      dplyr::select(first_presence_order = phase_order, first_presence_phase = phase_code),
+    by = "first_presence_order"
+  ) |>
+  dplyr::left_join(
+    chronology_phase_table |>
+      dplyr::select(last_presence_order = phase_order, last_presence_phase = phase_code),
+    by = "last_presence_order"
+  ) |>
+  dplyr::mutate(
+    run_count = tidyr::replace_na(run_count, 0L),
+    longest_run_length = tidyr::replace_na(longest_run_length, 0),
+    mean_run_length = tidyr::replace_na(mean_run_length, 0),
+    gap_count = tidyr::replace_na(gap_count, 0L),
+    gap_phase_count = tidyr::replace_na(gap_phase_count, 0),
+    max_gap_length = tidyr::replace_na(max_gap_length, 0),
+    mean_gap_length = tidyr::replace_na(mean_gap_length, 0),
+
+    presence_density_in_span = dplyr::if_else(
+      observed_span_phase_count > 0,
+      presence_phase_count / observed_span_phase_count,
+      0
+    ),
+
+    longest_run_ratio_in_span = dplyr::if_else(
+      observed_span_phase_count > 0,
+      longest_run_length / observed_span_phase_count,
+      0
+    ),
+
+    presence_ratio_all_phases = presence_phase_count / phase_n,
+    longest_run_ratio_all_phases = longest_run_length / phase_n,
+    observed_span_ratio_all_phases = observed_span_phase_count / phase_n,
+
+    gap_penalty = dplyr::if_else(
+      observed_span_phase_count > 1,
+      gap_phase_count / (observed_span_phase_count - 1),
+      0
+    ),
+
+    gap_free_span_component = observed_span_ratio_all_phases * (1 - clamp01(gap_penalty)),
+
+    continuity_index_raw = clamp01(
+      0.35 * presence_ratio_all_phases +
+        0.40 * longest_run_ratio_all_phases +
+        0.25 * gap_free_span_component
+    ),
+
+    continuity_index = dplyr::if_else(
+      presence_phase_count == 0,
+      0,
+      continuity_index_raw
+    ),
+
+    intermittency_index = dplyr::if_else(
+      presence_phase_count <= 1,
+      0,
+      clamp01(gap_penalty)
+    ),
+
+    sequence_class_code = dplyr::case_when(
+      presence_phase_count == 0 ~ 0L,
+      presence_phase_count == 1 ~ 1L,
+      gap_count == 0 & longest_run_length == 2 ~ 2L,
+      gap_count == 0 & longest_run_length %in% 3:4 ~ 3L,
+      gap_count == 0 & longest_run_length >= 5 ~ 4L,
+      gap_count == 1 ~ 5L,
+      gap_count >= 2 ~ 6L,
+      TRUE ~ NA_integer_
+    ),
+
+    sequence_class = dplyr::case_when(
+      sequence_class_code == 0L ~ "no_presence",
+      sequence_class_code == 1L ~ "single_phase",
+      sequence_class_code == 2L ~ "continuous_2phase",
+      sequence_class_code == 3L ~ "continuous_3_4phase",
+      sequence_class_code == 4L ~ "continuous_5_7phase",
+      sequence_class_code == 5L ~ "intermittent_gap1",
+      sequence_class_code == 6L ~ "intermittent_gap2plus",
+      TRUE ~ "unclassified"
+    ),
+
+    sequence_class = factor(sequence_class, levels = sequence_class_levels)
+  ) |>
+  dplyr::left_join(
+    place_phase_sequence_wide |>
+      dplyr::select(
+        place_id,
+        sequence_string,
+        sequence_label,
+        dplyr::any_of(analysis_metadata_cols)
+      ),
+    by = "place_id"
+  ) |>
+  dplyr::relocate(
+    place_id,
+    dplyr::any_of(analysis_metadata_cols),
+    sequence_string,
+    sequence_label,
+    sequence_class_code,
+    sequence_class
+  )
+
+print(dplyr::glimpse(place_continuity_summary))
+
+readr::write_csv(
+  place_continuity_summary,
+  file.path(csv_dir, "place_continuity_summary.csv")
+)
+```
+# 10. sequence-clustering
+
+**目的**：7時期のpresence/apparent_absence系列をJaccard距離でクラスタリングする。計算量と重複系列による重み付けを抑えるため、地点そのものではなくユニークな系列パターンをクラスタリングし、その結果を地点へ戻す。
+
+```{r c10_sequence_clustering, eval=TRUE}
+sequence_pattern_table <- place_phase_sequence_wide |>
+  dplyr::select(sequence_string, dplyr::all_of(phase_cols)) |>
+  dplyr::distinct()
+
+active_sequence_patterns <- sequence_pattern_table |>
+  dplyr::filter(
+    rowSums(dplyr::pick(dplyr::all_of(phase_cols)), na.rm = TRUE) > 0
+  )
+
+cluster_k_effective <- min(cluster_k, nrow(active_sequence_patterns))
+
+if (nrow(active_sequence_patterns) >= 2 && cluster_k_effective >= 2) {
+  pattern_matrix <- active_sequence_patterns |>
+    dplyr::select(dplyr::all_of(phase_cols)) |>
+    as.matrix()
+
+  rownames(pattern_matrix) <- active_sequence_patterns$sequence_string
+
+  sequence_dist <- stats::dist(
+    pattern_matrix,
+    method = "binary"
+  )
+
+  sequence_hclust <- stats::hclust(
+    sequence_dist,
+    method = "average"
+  )
+
+  pattern_cluster_id <- stats::cutree(
+    sequence_hclust,
+    k = cluster_k_effective
+  )
+
+  sequence_pattern_cluster <- tibble::tibble(
+    sequence_string = names(pattern_cluster_id),
+    sequence_cluster_id = paste0("SC", unname(pattern_cluster_id))
+  )
+} else if (nrow(active_sequence_patterns) == 1) {
+  sequence_pattern_cluster <- tibble::tibble(
+    sequence_string = active_sequence_patterns$sequence_string,
+    sequence_cluster_id = "SC1"
+  )
+} else {
+  sequence_pattern_cluster <- tibble::tibble(
+    sequence_string = character(0),
+    sequence_cluster_id = character(0)
+  )
+}
+
+format_sequence_phases <- function(sequence_string_value) {
+  s <- as.character(sequence_string_value)
+  s <- stringr::str_pad(
+    s,
+    width = length(phase_cols),
+    side = "left",
+    pad = "0"
+  )
+
+  chars <- strsplit(s, "", fixed = TRUE)[[1]]
+  active_phases <- phase_cols[chars == "1"]
+
+  if (length(active_phases) == 0) {
+    return("none")
+  }
+
+  paste(active_phases, collapse = "-")
+}
+
+place_sequence_cluster <- place_phase_sequence_wide |>
+  dplyr::select(place_id, sequence_string, sequence_label) |>
+  dplyr::left_join(
+    sequence_pattern_cluster,
+    by = "sequence_string"
+  ) |>
+  dplyr::mutate(
+    sequence_cluster_id = tidyr::replace_na(
+      sequence_cluster_id,
+      "SC0_no_presence"
+    ),
+    sequence_string_7digit = stringr::str_pad(
+      as.character(sequence_string),
+      width = length(phase_cols),
+      side = "left",
+      pad = "0"
+    ),
+    sequence_phases = vapply(
+      sequence_string_7digit,
+      format_sequence_phases,
+      character(1)
+    )
+  )
+
+place_continuity_summary <- place_continuity_summary |>
+  dplyr::left_join(
+    place_sequence_cluster |>
+      dplyr::select(
+        place_id,
+        sequence_cluster_id,
+        sequence_string_7digit,
+        sequence_phases
+      ),
+    by = "place_id"
+  ) |>
+  dplyr::relocate(
+    sequence_cluster_id,
+    .after = sequence_class
+  ) |>
+  dplyr::relocate(
+    sequence_string_7digit,
+    sequence_phases,
+    .after = sequence_string
+  )
+
+cluster_phase_profile <- place_sequence_cluster |>
+  dplyr::left_join(
+    place_phase_long |>
+      dplyr::select(
+        place_id,
+        phase_code,
+        phase_order,
+        presence
+      ),
+    by = "place_id"
+  ) |>
+  dplyr::group_by(
+    sequence_cluster_id,
+    phase_code,
+    phase_order
+  ) |>
+  dplyr::summarise(
+    n_places = dplyr::n_distinct(place_id),
+    presence_rate = mean(presence, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(
+    sequence_cluster_id,
+    phase_order
+  )
+
+sequence_cluster_summary <- place_continuity_summary |>
+  dplyr::group_by(sequence_cluster_id) |>
+  dplyr::summarise(
+    n_places = dplyr::n(),
+    dominant_sequence_class_code = as.integer(
+      names(sort(table(sequence_class_code), decreasing = TRUE))[1]
+    ),
+    dominant_sequence_class = names(
+      sort(table(sequence_class), decreasing = TRUE)
+    )[1],
+    mean_presence_phase_count = mean(
+      presence_phase_count,
+      na.rm = TRUE
+    ),
+    mean_longest_run_length = mean(
+      longest_run_length,
+      na.rm = TRUE
+    ),
+    mean_gap_count = mean(
+      gap_count,
+      na.rm = TRUE
+    ),
+    mean_continuity_index = mean(
+      continuity_index,
+      na.rm = TRUE
+    ),
+    typical_sequence = names(
+      sort(table(sequence_string_7digit), decreasing = TRUE)
+    )[1],
+    typical_sequence_phases = format_sequence_phases(
+      typical_sequence
+    ),
+    typical_sequence_label = paste0(
+      "seq_",
+      typical_sequence
+    ),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(
+    sequence_cluster_label = paste0(
+      sequence_cluster_id,
+      " / ",
+      typical_sequence_phases
+    )
+  ) |>
+  dplyr::arrange(sequence_cluster_id)
+
+cluster_phase_profile <- cluster_phase_profile |>
+  dplyr::left_join(
+    sequence_cluster_summary |>
+      dplyr::select(
+        sequence_cluster_id,
+        sequence_cluster_label
+      ),
+    by = "sequence_cluster_id"
+  )
+
+readr::write_csv(
+  sequence_pattern_cluster,
+  file.path(csv_dir, "sequence_pattern_cluster.csv")
+)
+
+readr::write_csv(
+  place_sequence_cluster,
+  file.path(csv_dir, "place_sequence_cluster.csv")
+)
+
+readr::write_csv(
+  place_continuity_summary,
+  file.path(csv_dir, "place_continuity_summary.csv")
+)
+
+readr::write_csv(
+  cluster_phase_profile,
+  file.path(csv_dir, "cluster_phase_profile.csv")
+)
+
+readr::write_csv(
+  sequence_cluster_summary,
+  file.path(csv_dir, "sequence_cluster_summary.csv")
+)
+
+print(sequence_cluster_summary)
+```
+# 11. phase-summaries
+
+**目的**：時期別出現数、隣接時期間の遷移要約を作成する。`phase_transition_summary.csv` では `apparent_absence_continue` を除外し、`continue / drop / new` の構成比を算出する。一方、後続のMarkov modelでは4遷移すべてを使用する。
+
+```{r c11_phase_summaries, eval=TRUE}
+phase_presence_summary <- place_phase_long |>
+  dplyr::group_by(
+    phase_code,
+    phase_order,
+    phase_label_ja
+  ) |>
+  dplyr::summarise(
+    n_places = dplyr::n_distinct(place_id),
+    presence_count = sum(presence, na.rm = TRUE),
+    apparent_absence_count = sum(presence == 0L, na.rm = TRUE),
+    presence_rate = presence_count / n_places,
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(phase_order)
+
+phase_transition_long <- place_phase_sequence_wide |>
+  dplyr::select(
+    place_id,
+    dplyr::all_of(phase_cols)
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(phase_cols),
+    names_to = "phase_code",
+    values_to = "presence"
+  ) |>
+  dplyr::left_join(
+    chronology_phase_table |>
+      dplyr::select(
+        phase_code,
+        phase_order
+      ),
+    by = "phase_code"
+  ) |>
+  dplyr::arrange(
+    place_id,
+    phase_order
+  ) |>
+  dplyr::group_by(place_id) |>
+  dplyr::mutate(
+    next_phase_code = dplyr::lead(phase_code),
+    next_phase_order = dplyr::lead(phase_order),
+    next_presence = dplyr::lead(presence)
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::filter(!is.na(next_phase_code)) |>
+  dplyr::mutate(
+    transition = dplyr::case_when(
+      presence == 1L & next_presence == 1L ~ "continue",
+      presence == 1L & next_presence == 0L ~ "drop",
+      presence == 0L & next_presence == 1L ~ "new",
+      TRUE ~ "apparent_absence_continue"
+    ),
+    phase_pair = paste0(
+      phase_code,
+      "->",
+      next_phase_code
+    ),
+    phase_pair_order = phase_order
+  )
+
+phase_transition_counts_all <- phase_transition_long |>
+  dplyr::count(
+    phase_pair,
+    phase_pair_order,
+    transition,
+    name = "n_places"
+  )
+
+phase_transition_totals_all <- phase_transition_counts_all |>
+  dplyr::group_by(
+    phase_pair,
+    phase_pair_order
+  ) |>
+  dplyr::summarise(
+    total_places_all = sum(n_places),
+    apparent_absence_continue_excluded = sum(
+      n_places[transition == "apparent_absence_continue"],
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+phase_transition_pair_table <- phase_transition_long |>
+  dplyr::distinct(
+    phase_pair,
+    phase_pair_order
+  )
+
+phase_transition_active_counts <- phase_transition_counts_all |>
+  dplyr::filter(
+    transition != "apparent_absence_continue"
+  )
+
+phase_transition_summary <- tidyr::crossing(
+  phase_transition_pair_table,
+  transition = transition_levels
+) |>
+  dplyr::left_join(
+    phase_transition_active_counts,
+    by = c(
+      "phase_pair",
+      "phase_pair_order",
+      "transition"
+    )
+  ) |>
+  dplyr::mutate(
+    n_places = tidyr::replace_na(
+      n_places,
+      0L
+    )
+  ) |>
+  dplyr::group_by(
+    phase_pair,
+    phase_pair_order
+  ) |>
+  dplyr::mutate(
+    active_total_places = sum(n_places),
+    transition_rate_active = dplyr::if_else(
+      active_total_places > 0,
+      n_places / active_total_places,
+      NA_real_
+    )
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::left_join(
+    phase_transition_totals_all,
+    by = c(
+      "phase_pair",
+      "phase_pair_order"
+    )
+  ) |>
+  dplyr::arrange(
+    phase_pair_order,
+    factor(
+      transition,
+      levels = transition_levels
+    )
+  )
+
+readr::write_csv(
+  phase_presence_summary,
+  file.path(csv_dir, "phase_presence_summary.csv")
+)
+
+readr::write_csv(
+  phase_transition_long,
+  file.path(csv_dir, "place_phase_transition_long.csv")
+)
+
+readr::write_csv(
+  phase_transition_counts_all,
+  file.path(csv_dir, "phase_transition_counts_all.csv")
+)
+
+readr::write_csv(
+  phase_transition_summary,
+  file.path(csv_dir, "phase_transition_summary.csv")
+)
+
+print(phase_presence_summary)
+print(phase_transition_summary)
+```
+# 12. markov-transition-model
+
+**目的**：隣接時期間のpresence/apparent_absenceを2状態の一次Markov遷移として表し、時期ペア別および全時期プールの条件付き遷移確率を算出する。時期幅が等しいとは仮定せず、各時期を順序カテゴリとして扱う。
+
+```{r c12_markov_transition_model, eval=TRUE}
+markov_transition_counts <- phase_transition_long |>
+  dplyr::transmute(
+    place_id,
+    phase_pair,
+    phase_pair_order,
+    from_state = dplyr::if_else(
+      presence == 1L,
+      "presence",
+      "apparent_absence"
+    ),
+    to_state = dplyr::if_else(
+      next_presence == 1L,
+      "presence",
+      "apparent_absence"
+    )
+  ) |>
+  dplyr::count(
+    phase_pair,
+    phase_pair_order,
+    from_state,
+    to_state,
+    name = "n_transitions"
+  )
+
+markov_transition_grid <- tidyr::crossing(
+  phase_transition_pair_table,
+  from_state = markov_state_levels,
+  to_state = markov_state_levels
+)
+
+markov_transition_by_phase <- markov_transition_grid |>
+  dplyr::left_join(
+    markov_transition_counts,
+    by = c(
+      "phase_pair",
+      "phase_pair_order",
+      "from_state",
+      "to_state"
+    )
+  ) |>
+  dplyr::mutate(
+    n_transitions = tidyr::replace_na(
+      n_transitions,
+      0L
+    )
+  ) |>
+  dplyr::group_by(
+    phase_pair,
+    phase_pair_order,
+    from_state
+  ) |>
+  dplyr::mutate(
+    n_from_state = sum(n_transitions),
+    transition_probability = dplyr::if_else(
+      n_from_state > 0,
+      n_transitions / n_from_state,
+      NA_real_
+    )
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(
+    transition_label = paste0(
+      from_state,
+      " -> ",
+      to_state
+    )
+  ) |>
+  dplyr::arrange(
+    phase_pair_order,
+    factor(
+      from_state,
+      levels = markov_state_levels
+    ),
+    factor(
+      to_state,
+      levels = markov_state_levels
+    )
+  )
+
+markov_transition_overall <- markov_transition_by_phase |>
+  dplyr::group_by(
+    from_state,
+    to_state
+  ) |>
+  dplyr::summarise(
+    n_transitions = sum(n_transitions),
+    .groups = "drop"
+  ) |>
+  dplyr::group_by(from_state) |>
+  dplyr::mutate(
+    n_from_state = sum(n_transitions),
+    transition_probability = dplyr::if_else(
+      n_from_state > 0,
+      n_transitions / n_from_state,
+      NA_real_
+    ),
+    transition_label = paste0(
+      from_state,
+      " -> ",
+      to_state
+    )
+  ) |>
+  dplyr::ungroup()
+
+readr::write_csv(
+  markov_transition_by_phase,
+  file.path(csv_dir, "markov_transition_by_phase.csv")
+)
+
+readr::write_csv(
+  markov_transition_overall,
+  file.path(csv_dir, "markov_transition_overall.csv")
+)
+
+print(markov_transition_by_phase)
+print(markov_transition_overall)
+```
+# 13. change-point-screening
+
+**目的**：7時期という短い系列に対し、推測統計的な多重変化点検出ではなく、presence率とactive transition率の「単一break候補」をSSE改善率で探索する。結果は探索的な転換候補として扱う。
+
+```{r c13_change_point_screening, eval=TRUE}
+screen_single_break <- function(
+  values,
+  labels,
+  metric_name,
+  min_segment = 2L
+) {
+  values <- as.numeric(values)
+  labels <- as.character(labels)
+
+  valid <- is.finite(values) & !is.na(labels)
+  values <- values[valid]
+  labels <- labels[valid]
+
+  n <- length(values)
+
+  if (n < (2L * min_segment)) {
+    return(
+      tibble::tibble(
+        metric = character(0),
+        candidate_order = integer(0),
+        left_label = character(0),
+        right_label = character(0),
+        change_label = character(0),
+        left_mean = double(0),
+        right_mean = double(0),
+        delta_mean = double(0),
+        sse_no_break = double(0),
+        sse_with_break = double(0),
+        change_score = double(0),
+        best_candidate = logical(0)
+      )
+    )
+  }
+
+  sse_no_break <- sum(
+    (values - mean(values))^2
+  )
+
+  split_positions <- seq.int(
+    min_segment,
+    n - min_segment
+  )
+
+  out <- purrr::map_dfr(
+    split_positions,
+    function(split_pos) {
+      left_values <- values[seq_len(split_pos)]
+      right_values <- values[(split_pos + 1L):n]
+
+      sse_with_break <- sum(
+        (left_values - mean(left_values))^2
+      ) +
+        sum(
+          (right_values - mean(right_values))^2
+        )
+
+      change_score <- if (
+        is.finite(sse_no_break) &&
+          sse_no_break > 0
+      ) {
+        (sse_no_break - sse_with_break) / sse_no_break
+      } else {
+        0
+      }
+
+      tibble::tibble(
+        metric = metric_name,
+        candidate_order = split_pos,
+        left_label = labels[split_pos],
+        right_label = labels[split_pos + 1L],
+        change_label = paste0(
+          labels[split_pos],
+          " | ",
+          labels[split_pos + 1L]
+        ),
+        left_mean = mean(left_values),
+        right_mean = mean(right_values),
+        delta_mean = mean(right_values) - mean(left_values),
+        sse_no_break = sse_no_break,
+        sse_with_break = sse_with_break,
+        change_score = change_score
+      )
+    }
+  )
+
+  if (nrow(out) > 0) {
+    best_index <- which.max(out$change_score)
+    out$best_candidate <- seq_len(nrow(out)) == best_index
+  } else {
+    out$best_candidate <- logical(0)
+  }
+
+  out
+}
+
+presence_change_candidates <- screen_single_break(
+  values = phase_presence_summary$presence_rate,
+  labels = phase_presence_summary$phase_code,
+  metric_name = "presence_rate",
+  min_segment = change_point_min_segment
+)
+
+transition_change_candidates <- purrr::map_dfr(
+  transition_levels,
+  function(target_transition) {
+    transition_series <- phase_transition_summary |>
+      dplyr::filter(
+        transition == target_transition
+      ) |>
+      dplyr::arrange(
+        phase_pair_order
+      )
+
+    screen_single_break(
+      values = transition_series$transition_rate_active,
+      labels = transition_series$phase_pair,
+      metric_name = paste0(
+        target_transition,
+        "_rate_active"
+      ),
+      min_segment = change_point_min_segment
+    )
+  }
+)
+
+change_point_candidates <- dplyr::bind_rows(
+  presence_change_candidates,
+  transition_change_candidates
+)
+
+change_point_best <- change_point_candidates |>
+  dplyr::filter(best_candidate) |>
+  dplyr::arrange(
+    dplyr::desc(change_score)
+  )
+
+readr::write_csv(
+  change_point_candidates,
+  file.path(csv_dir, "change_point_candidates.csv")
+)
+
+readr::write_csv(
+  change_point_best,
+  file.path(csv_dir, "change_point_best.csv")
+)
+
+print(change_point_best)
+```
+# 14. build-spatial-layers
+
+**目的**：Lon/Latがある場合に、QGIS確認および空間クラスタ分析用の地点レイヤを作成する。位置情報は連続性指標そのものの算出には使用しない。
+
+```{r c14_build_spatial_layers, eval=TRUE}
+make_empty_point_sf <- function() {
+  sf::st_sf(
+    geometry = sf::st_sfc(crs = 4326)
+  )
+}
+
+has_coordinates <- all(
+  c(lon_col, lat_col) %in% names(chronology_raw_all)
+)
+
+if (has_coordinates) {
+  coordinate_table_all <- chronology_raw_all |>
+    dplyr::mutate(
+      place_id = as.character(.data[[preferred_id_col]]),
+      lon_value = suppressWarnings(
+        as.numeric(.data[[lon_col]])
+      ),
+      lat_value = suppressWarnings(
+        as.numeric(.data[[lat_col]])
+      )
+    ) |>
+    dplyr::filter(
+      is.finite(lon_value),
+      is.finite(lat_value)
+    ) |>
+    dplyr::select(
+      place_id,
+      lon_value,
+      lat_value
+    ) |>
+    dplyr::distinct(
+      place_id,
+      .keep_all = TRUE
+    )
+
+  coordinate_table <- chronology_raw |>
+    dplyr::mutate(
+      place_id = as.character(.data[[preferred_id_col]]),
+      lon_value = suppressWarnings(
+        as.numeric(.data[[lon_col]])
+      ),
+      lat_value = suppressWarnings(
+        as.numeric(.data[[lat_col]])
+      )
+    ) |>
+    dplyr::filter(
+      is.finite(lon_value),
+      is.finite(lat_value)
+    ) |>
+    dplyr::select(
+      place_id,
+      lon_value,
+      lat_value
+    ) |>
+    dplyr::distinct(
+      place_id,
+      .keep_all = TRUE
+    )
+
+  chronology_place_continuity_sf <- place_continuity_summary |>
+    dplyr::left_join(
+      coordinate_table,
+      by = "place_id"
+    ) |>
+    dplyr::filter(
+      is.finite(lon_value),
+      is.finite(lat_value)
+    ) |>
+    sf::st_as_sf(
+      coords = c(
+        "lon_value",
+        "lat_value"
+      ),
+      crs = 4326,
+      remove = FALSE
+    )
+
+  chronology_place_phase_presence_sf <- place_phase_long |>
+    dplyr::left_join(
+      coordinate_table,
+      by = "place_id"
+    ) |>
+    dplyr::filter(
+      is.finite(lon_value),
+      is.finite(lat_value)
+    ) |>
+    sf::st_as_sf(
+      coords = c(
+        "lon_value",
+        "lat_value"
+      ),
+      crs = 4326,
+      remove = FALSE
+    )
+
+  chronology_phase_transition_sf <- phase_transition_long |>
+    dplyr::left_join(
+      coordinate_table,
+      by = "place_id"
+    ) |>
+    dplyr::filter(
+      is.finite(lon_value),
+      is.finite(lat_value)
+    ) |>
+    sf::st_as_sf(
+      coords = c(
+        "lon_value",
+        "lat_value"
+      ),
+      crs = 4326,
+      remove = FALSE
+    )
+
+  chronology_run_events_sf <- place_run_events |>
+    dplyr::left_join(
+      coordinate_table,
+      by = "place_id"
+    ) |>
+    dplyr::filter(
+      is.finite(lon_value),
+      is.finite(lat_value)
+    ) |>
+    sf::st_as_sf(
+      coords = c(
+        "lon_value",
+        "lat_value"
+      ),
+      crs = 4326,
+      remove = FALSE
+    )
+
+  chronology_gap_events_sf <- place_gap_events |>
+    dplyr::left_join(
+      coordinate_table,
+      by = "place_id"
+    ) |>
+    dplyr::filter(
+      is.finite(lon_value),
+      is.finite(lat_value)
+    ) |>
+    sf::st_as_sf(
+      coords = c(
+        "lon_value",
+        "lat_value"
+      ),
+      crs = 4326,
+      remove = FALSE
+    )
+
+  if (exists("special_category_excluded_points")) {
+    special_category_excluded_points_sf <- special_category_excluded_points |>
+      dplyr::left_join(
+        coordinate_table_all,
+        by = "place_id"
+      ) |>
+      dplyr::filter(
+        is.finite(lon_value),
+        is.finite(lat_value)
+      ) |>
+      sf::st_as_sf(
+        coords = c(
+          "lon_value",
+          "lat_value"
+        ),
+        crs = 4326,
+        remove = FALSE
+      )
+  } else {
+    special_category_excluded_points_sf <- make_empty_point_sf()
+  }
+
+  if (exists("special_site_type_flagged_points")) {
+    special_site_type_flagged_points_sf <- special_site_type_flagged_points |>
+      dplyr::left_join(
+        coordinate_table_all,
+        by = "place_id"
+      ) |>
+      dplyr::filter(
+        is.finite(lon_value),
+        is.finite(lat_value)
+      ) |>
+      sf::st_as_sf(
+        coords = c(
+          "lon_value",
+          "lat_value"
+        ),
+        crs = 4326,
+        remove = FALSE
+      )
+  } else {
+    special_site_type_flagged_points_sf <- make_empty_point_sf()
+  }
+
+  if (exists("special_function_flagged_points")) {
+    special_function_flagged_points_sf <- special_function_flagged_points |>
+      dplyr::left_join(
+        coordinate_table_all,
+        by = "place_id"
+      ) |>
+      dplyr::filter(
+        is.finite(lon_value),
+        is.finite(lat_value)
+      ) |>
+      sf::st_as_sf(
+        coords = c(
+          "lon_value",
+          "lat_value"
+        ),
+        crs = 4326,
+        remove = FALSE
+      )
+  } else {
+    special_function_flagged_points_sf <- make_empty_point_sf()
+  }
+
+  cat(
+    "spatial places:",
+    nrow(chronology_place_continuity_sf),
+    "\n"
+  )
+  cat(
+    "phase transition spatial rows:",
+    nrow(chronology_phase_transition_sf),
+    "\n"
+  )
+  cat(
+    "special excluded spatial places:",
+    nrow(special_category_excluded_points_sf),
+    "\n"
+  )
+  cat(
+    "special SiteType flagged spatial places:",
+    nrow(special_site_type_flagged_points_sf),
+    "\n"
+  )
+  cat(
+    "special function spatial places:",
+    nrow(special_function_flagged_points_sf),
+    "\n"
+  )
+} else {
+  chronology_place_continuity_sf <- make_empty_point_sf()
+  chronology_place_phase_presence_sf <- make_empty_point_sf()
+  chronology_phase_transition_sf <- make_empty_point_sf()
+  chronology_run_events_sf <- make_empty_point_sf()
+  chronology_gap_events_sf <- make_empty_point_sf()
+  special_category_excluded_points_sf <- make_empty_point_sf()
+  special_site_type_flagged_points_sf <- make_empty_point_sf()
+  special_function_flagged_points_sf <- make_empty_point_sf()
+
+  warning(
+    "Lon/Lat列がないため、GPKG出力および空間クラスタ分析用の地点レイヤは空になります。"
+  )
+}
+```
+# 15. spatial-cluster-analysis
+
+**目的**：継続性・gap/断続性の空間自己相関をGlobal Moran's Iとpermutation Local Moran's Iで評価し、各時期遷移の `drop / new` の局所集中をLocal Join Countで検出する。空間近傍は投影座標上の対称k近傍で定義する。
+
+```{r c15_spatial_cluster_analysis, eval=TRUE}
+empty_global_moran <- function() {
+  tibble::tibble(
+    metric = character(0),
+    n_points = integer(0),
+    moran_i = double(0),
+    expectation = double(0),
+    variance = double(0),
+    statistic = double(0),
+    p_value = double(0)
+  )
+}
+
+empty_local_lisa <- function() {
+  tibble::tibble(
+    place_id = character(0),
+    metric = character(0),
+    value = double(0),
+    z_value = double(0),
+    spatial_lag_z = double(0),
+    local_moran_i = double(0),
+    local_moran_z = double(0),
+    p_value = double(0),
+    p_adj = double(0),
+    lisa_class = character(0)
+  )
+}
+
+empty_transition_global <- function() {
+  tibble::tibble(
+    phase_pair = character(0),
+    phase_pair_order = integer(0),
+    event_type = character(0),
+    event_count = integer(0),
+    event_prevalence = double(0),
+    n_points = integer(0),
+    moran_i = double(0),
+    expectation = double(0),
+    variance = double(0),
+    statistic = double(0),
+    p_value = double(0)
+  )
+}
+
+empty_transition_joincount <- function() {
+  tibble::tibble(
+    place_id = character(0),
+    phase_pair = character(0),
+    phase_pair_order = integer(0),
+    event_type = character(0),
+    event_value = integer(0),
+    event_prevalence = double(0),
+    join_count_bb = double(0),
+    p_value = double(0),
+    p_adj = double(0),
+    joincount_class = character(0),
+    test_status = character(0)
+  )
+}
+
+build_symmetric_knn_nb <- function(coords, k) {
+  tryCatch(
+    {
+      knn <- spdep::knearneigh(
+        coords,
+        k = k
+      )
+      spdep::knn2nb(
+        knn,
+        sym = TRUE
+      )
+    },
+    error = function(e) {
+      set.seed(spatial_seed)
+
+      jitter_matrix <- matrix(
+        stats::runif(
+          length(coords),
+          min = -0.001,
+          max = 0.001
+        ),
+        ncol = ncol(coords)
+      )
+
+      knn <- spdep::knearneigh(
+        coords + jitter_matrix,
+        k = k
+      )
+
+      spdep::knn2nb(
+        knn,
+        sym = TRUE
+      )
+    }
+  )
+}
+
+global_moran_one <- function(x, metric_name, listw_object) {
+  x <- as.numeric(x)
+
+  if (
+    length(x) < 3 ||
+      sum(is.finite(x)) < 3 ||
+      length(unique(x[is.finite(x)])) < 2
+  ) {
+    return(
+      tibble::tibble(
+        metric = metric_name,
+        n_points = sum(is.finite(x)),
+        moran_i = NA_real_,
+        expectation = NA_real_,
+        variance = NA_real_,
+        statistic = NA_real_,
+        p_value = NA_real_
+      )
+    )
+  }
+
+  result <- tryCatch(
+    spdep::moran.test(
+      x,
+      listw_object,
+      zero.policy = TRUE
+    ),
+    error = function(e) NULL
+  )
+
+  if (is.null(result)) {
+    return(
+      tibble::tibble(
+        metric = metric_name,
+        n_points = length(x),
+        moran_i = NA_real_,
+        expectation = NA_real_,
+        variance = NA_real_,
+        statistic = NA_real_,
+        p_value = NA_real_
+      )
+    )
+  }
+
+  tibble::tibble(
+    metric = metric_name,
+    n_points = length(x),
+    moran_i = unname(result$estimate[[1]]),
+    expectation = unname(result$estimate[[2]]),
+    variance = unname(result$estimate[[3]]),
+    statistic = unname(result$statistic[[1]]),
+    p_value = result$p.value
+  )
+}
+
+local_moran_one <- function(
+  place_ids,
+  x,
+  metric_name,
+  listw_object
+) {
+  x <- as.numeric(x)
+
+  if (
+    length(x) < 3 ||
+      length(unique(x[is.finite(x)])) < 2
+  ) {
+    return(
+      tibble::tibble(
+        place_id = place_ids,
+        metric = metric_name,
+        value = x,
+        z_value = NA_real_,
+        spatial_lag_z = NA_real_,
+        local_moran_i = NA_real_,
+        local_moran_z = NA_real_,
+        p_value = NA_real_,
+        p_adj = NA_real_,
+        lisa_class = "not_tested"
+      )
+    )
+  }
+
+  x_mean <- mean(x, na.rm = TRUE)
+  x_sd <- stats::sd(x, na.rm = TRUE)
+
+  if (!is.finite(x_sd) || x_sd == 0) {
+    z_value <- rep(0, length(x))
+  } else {
+    z_value <- (x - x_mean) / x_sd
+  }
+
+  spatial_lag_z <- spdep::lag.listw(
+    listw_object,
+    z_value,
+    zero.policy = TRUE
+  )
+
+  local_result <- tryCatch(
+    spdep::localmoran_perm(
+      x,
+      listw_object,
+      nsim = spatial_permutations,
+      zero.policy = TRUE,
+      alternative = "two.sided",
+      iseed = spatial_seed
+    ),
+    error = function(e) NULL
+  )
+
+  if (is.null(local_result)) {
+    return(
+      tibble::tibble(
+        place_id = place_ids,
+        metric = metric_name,
+        value = x,
+        z_value = z_value,
+        spatial_lag_z = as.numeric(spatial_lag_z),
+        local_moran_i = NA_real_,
+        local_moran_z = NA_real_,
+        p_value = NA_real_,
+        p_adj = NA_real_,
+        lisa_class = "not_tested"
+      )
+    )
+  }
+
+  local_result <- as.data.frame(local_result)
+
+  local_i <- if ("Ii" %in% names(local_result)) {
+    local_result[["Ii"]]
+  } else {
+    local_result[[1]]
+  }
+
+  local_z <- if ("Z.Ii" %in% names(local_result)) {
+    local_result[["Z.Ii"]]
+  } else {
+    rep(NA_real_, nrow(local_result))
+  }
+
+  sim_p_cols <- grep(
+    "Sim$",
+    names(local_result),
+    value = TRUE
+  )
+  sim_p_cols <- sim_p_cols[
+    !stringr::str_detect(
+      sim_p_cols,
+      stringr::regex("folded", ignore_case = TRUE)
+    )
+  ]
+
+  local_p <- if (length(sim_p_cols) > 0) {
+    local_result[[sim_p_cols[1]]]
+  } else {
+    p_cols <- grep(
+      "^Pr",
+      names(local_result),
+      value = TRUE
+    )
+
+    if (length(p_cols) > 0) {
+      local_result[[p_cols[1]]]
+    } else {
+      2 * stats::pnorm(
+        abs(local_z),
+        lower.tail = FALSE
+      )
+    }
+  }
+
+  p_adj <- stats::p.adjust(
+    local_p,
+    method = "BH"
+  )
+
+  lisa_class <- dplyr::case_when(
+    p_adj <= spatial_alpha &
+      z_value > 0 &
+      spatial_lag_z > 0 ~ "High-High",
+    p_adj <= spatial_alpha &
+      z_value < 0 &
+      spatial_lag_z < 0 ~ "Low-Low",
+    p_adj <= spatial_alpha &
+      z_value > 0 &
+      spatial_lag_z < 0 ~ "High-Low",
+    p_adj <= spatial_alpha &
+      z_value < 0 &
+      spatial_lag_z > 0 ~ "Low-High",
+    TRUE ~ "not_significant"
+  )
+
+  tibble::tibble(
+    place_id = place_ids,
+    metric = metric_name,
+    value = x,
+    z_value = z_value,
+    spatial_lag_z = as.numeric(spatial_lag_z),
+    local_moran_i = as.numeric(local_i),
+    local_moran_z = as.numeric(local_z),
+    p_value = as.numeric(local_p),
+    p_adj = as.numeric(p_adj),
+    lisa_class = lisa_class
+  )
+}
+
+local_joincount_one <- function(
+  place_ids,
+  event_value,
+  phase_pair_value,
+  phase_pair_order_value,
+  event_name,
+  listw_binary
+) {
+  event_value <- as.integer(event_value)
+  event_value[is.na(event_value)] <- 0L
+
+  n_points <- length(event_value)
+  event_count <- sum(event_value == 1L)
+  event_prevalence <- if (n_points > 0) {
+    event_count / n_points
+  } else {
+    NA_real_
+  }
+
+  base_result <- tibble::tibble(
+    place_id = place_ids,
+    phase_pair = phase_pair_value,
+    phase_pair_order = phase_pair_order_value,
+    event_type = event_name,
+    event_value = event_value,
+    event_prevalence = event_prevalence,
+    join_count_bb = NA_real_,
+    p_value = NA_real_,
+    p_adj = NA_real_,
+    joincount_class = dplyr::if_else(
+      event_value == 1L,
+      "event_not_tested",
+      "non_event"
+    ),
+    test_status = "not_tested"
+  )
+
+  if (n_points < 3 || event_count == 0L) {
+    base_result$test_status <- "not_tested_no_event"
+    return(base_result)
+  }
+
+  if (event_count == n_points) {
+    base_result$test_status <- "not_tested_no_contrast"
+    return(base_result)
+  }
+
+  if (event_prevalence > 0.5) {
+    base_result$test_status <- "not_tested_event_prevalence_gt_0.5"
+    return(base_result)
+  }
+
+  event_factor <- factor(
+    ifelse(
+      event_value == 1L,
+      "event",
+      "other"
+    ),
+    levels = c(
+      "other",
+      "event"
+    )
+  )
+
+  join_result <- tryCatch(
+    spdep::local_joincount_uni(
+      event_factor,
+      chosen = "event",
+      listw = listw_binary,
+      alternative = "greater",
+      nsim = spatial_permutations,
+      iseed = spatial_seed
+    ),
+    error = function(e) NULL
+  )
+
+  if (is.null(join_result)) {
+    base_result$test_status <- "not_tested_joincount_error"
+    return(base_result)
+  }
+
+  join_result <- as.data.frame(join_result)
+
+  bb_value <- if ("BB" %in% names(join_result)) {
+    as.numeric(join_result[["BB"]])
+  } else {
+    rep(NA_real_, n_points)
+  }
+
+  raw_p <- if ("Pr()" %in% names(join_result)) {
+    as.numeric(join_result[["Pr()"]])
+  } else {
+    rep(NA_real_, n_points)
+  }
+
+  adjusted_p <- rep(NA_real_, n_points)
+  event_rows <- event_value == 1L & is.finite(raw_p)
+
+  if (any(event_rows)) {
+    adjusted_p[event_rows] <- stats::p.adjust(
+      raw_p[event_rows],
+      method = "BH"
+    )
+  }
+
+  base_result$join_count_bb <- bb_value
+  base_result$p_value <- raw_p
+  base_result$p_adj <- adjusted_p
+  base_result$joincount_class <- dplyr::case_when(
+    event_value == 0L ~ "non_event",
+    adjusted_p <= spatial_alpha & bb_value > 0 ~ "event_cluster",
+    TRUE ~ "event_not_significant"
+  )
+  base_result$test_status <- "tested_local_join_count"
+
+  base_result
+}
+
+spatial_analysis_available <- nrow(
+  chronology_place_continuity_sf
+) >= 3
+
+if (spatial_analysis_available) {
+  spatial_base_metric_sf <- chronology_place_continuity_sf |>
+    sf::st_transform(
+      spatial_analysis_crs
+    )
+
+  coords_metric <- sf::st_coordinates(
+    spatial_base_metric_sf
+  )
+
+  spatial_k_effective <- min(
+    spatial_k,
+    nrow(spatial_base_metric_sf) - 1L
+  )
+
+  spatial_nb <- build_symmetric_knn_nb(
+    coords_metric,
+    spatial_k_effective
+  )
+
+  spatial_listw <- spdep::nb2listw(
+    spatial_nb,
+    style = "W",
+    zero.policy = TRUE
+  )
+
+  spatial_listw_binary <- spdep::nb2listw(
+    spatial_nb,
+    style = "B",
+    zero.policy = TRUE
+  )
+
+  spatial_neighbor_edges <- purrr::map_dfr(
+    seq_along(spatial_nb),
+    function(i) {
+      neighbors_i <- spatial_nb[[i]]
+
+      if (length(neighbors_i) == 0) {
+        return(
+          tibble::tibble(
+            from_index = integer(0),
+            to_index = integer(0)
+          )
+        )
+      }
+
+      tibble::tibble(
+        from_index = rep.int(i, length(neighbors_i)),
+        to_index = neighbors_i
+      )
+    }
+  ) |>
+    dplyr::filter(
+      from_index < to_index
+    ) |>
+    dplyr::mutate(
+      from_place_id = spatial_base_metric_sf$place_id[from_index],
+      to_place_id = spatial_base_metric_sf$place_id[to_index],
+      edge_distance_m = sqrt(
+        (coords_metric[from_index, 1] - coords_metric[to_index, 1])^2 +
+          (coords_metric[from_index, 2] - coords_metric[to_index, 2])^2
+      )
+    )
+
+  edge_distance_summary <- if (nrow(spatial_neighbor_edges) > 0) {
+    c(
+      min = min(spatial_neighbor_edges$edge_distance_m, na.rm = TRUE),
+      median = stats::median(spatial_neighbor_edges$edge_distance_m, na.rm = TRUE),
+      max = max(spatial_neighbor_edges$edge_distance_m, na.rm = TRUE)
+    )
+  } else {
+    c(
+      min = NA_real_,
+      median = NA_real_,
+      max = NA_real_
+    )
+  }
+
+  spatial_neighbor_definition <- tibble::tibble(
+    n_points = nrow(spatial_base_metric_sf),
+    requested_k = spatial_k,
+    effective_k = spatial_k_effective,
+    symmetric_knn = TRUE,
+    analysis_crs = spatial_analysis_crs,
+    local_significance_alpha = spatial_alpha,
+    local_p_adjustment = "BH",
+    local_permutations = spatial_permutations,
+    min_edge_distance_m = unname(edge_distance_summary[["min"]]),
+    median_edge_distance_m = unname(edge_distance_summary[["median"]]),
+    max_edge_distance_m = unname(edge_distance_summary[["max"]])
+  )
+
+  if (nrow(spatial_neighbor_edges) > 0) {
+    edge_geometry <- sf::st_sfc(
+      lapply(
+        seq_len(nrow(spatial_neighbor_edges)),
+        function(i) {
+          sf::st_linestring(
+            rbind(
+              coords_metric[
+                spatial_neighbor_edges$from_index[i],
+                ,
+                drop = FALSE
+              ],
+              coords_metric[
+                spatial_neighbor_edges$to_index[i],
+                ,
+                drop = FALSE
+              ]
+            )
+          )
+        }
+      ),
+      crs = spatial_analysis_crs
+    )
+
+    spatial_neighbor_edges_sf <- sf::st_sf(
+      spatial_neighbor_edges,
+      geometry = edge_geometry
+    ) |>
+      sf::st_transform(4326)
+  } else {
+    spatial_neighbor_edges_sf <- sf::st_sf(
+      geometry = sf::st_sfc(
+        crs = 4326
+      )
+    )
+  }
+
+  available_spatial_metrics <- intersect(
+    spatial_continuous_metrics,
+    names(spatial_base_metric_sf)
+  )
+
+  spatial_global_moran <- purrr::map_dfr(
+    available_spatial_metrics,
+    function(metric_name) {
+      global_moran_one(
+        spatial_base_metric_sf[[metric_name]],
+        metric_name,
+        spatial_listw
+      )
+    }
+  )
+
+  spatial_local_lisa <- purrr::map_dfr(
+    available_spatial_metrics,
+    function(metric_name) {
+      local_moran_one(
+        place_ids = spatial_base_metric_sf$place_id,
+        x = spatial_base_metric_sf[[metric_name]],
+        metric_name = metric_name,
+        listw_object = spatial_listw
+      )
+    }
+  )
+
+  lisa_wide <- spatial_local_lisa |>
+    dplyr::select(
+      place_id,
+      metric,
+      value,
+      local_moran_i,
+      local_moran_z,
+      p_value,
+      p_adj,
+      lisa_class
+    ) |>
+    tidyr::pivot_wider(
+      names_from = metric,
+      values_from = c(
+        value,
+        local_moran_i,
+        local_moran_z,
+        p_value,
+        p_adj,
+        lisa_class
+      ),
+      names_glue = "{metric}_{.value}"
+    )
+
+  spatial_continuity_gap_lisa_sf <- chronology_place_continuity_sf |>
+    dplyr::select(place_id) |>
+    dplyr::left_join(
+      lisa_wide,
+      by = "place_id"
+    )
+
+  transition_pair_table_spatial <- phase_transition_long |>
+    dplyr::distinct(
+      phase_pair,
+      phase_pair_order
+    ) |>
+    dplyr::arrange(
+      phase_pair_order
+    )
+
+  transition_global_list <- list()
+  transition_global_index <- 1L
+
+  for (
+    pair_index in seq_len(
+      nrow(transition_pair_table_spatial)
+    )
+  ) {
+    current_pair <- transition_pair_table_spatial$phase_pair[pair_index]
+    current_pair_order <- transition_pair_table_spatial$phase_pair_order[pair_index]
+
+    pair_transitions <- phase_transition_long |>
+      dplyr::filter(
+        phase_pair == current_pair
+      ) |>
+      dplyr::select(
+        place_id,
+        transition
+      )
+
+    pair_spatial <- spatial_base_metric_sf |>
+      dplyr::select(place_id) |>
+      dplyr::left_join(
+        pair_transitions,
+        by = "place_id"
+      )
+
+    for (event_name in spatial_transition_global_events) {
+      event_value <- as.integer(
+        pair_spatial$transition == event_name
+      )
+      event_value[is.na(event_value)] <- 0L
+
+      global_event <- global_moran_one(
+        event_value,
+        paste0(
+          current_pair,
+          "__",
+          event_name
+        ),
+        spatial_listw
+      ) |>
+        dplyr::transmute(
+          phase_pair = current_pair,
+          phase_pair_order = current_pair_order,
+          event_type = event_name,
+          event_count = sum(event_value),
+          event_prevalence = mean(event_value),
+          n_points = nrow(pair_spatial),
+          moran_i,
+          expectation,
+          variance,
+          statistic,
+          p_value
+        )
+
+      transition_global_list[[transition_global_index]] <- global_event
+      transition_global_index <- transition_global_index + 1L
+    }
+  }
+
+  spatial_transition_global_moran <- dplyr::bind_rows(
+    transition_global_list
+  )
+
+  transition_joincount_list <- list()
+  transition_joincount_index <- 1L
+
+  for (
+    pair_index in seq_len(
+      nrow(transition_pair_table_spatial)
+    )
+  ) {
+    current_pair <- transition_pair_table_spatial$phase_pair[pair_index]
+    current_pair_order <- transition_pair_table_spatial$phase_pair_order[pair_index]
+
+    pair_transitions <- phase_transition_long |>
+      dplyr::filter(
+        phase_pair == current_pair
+      ) |>
+      dplyr::select(
+        place_id,
+        transition
+      )
+
+    pair_spatial <- spatial_base_metric_sf |>
+      dplyr::select(place_id) |>
+      dplyr::left_join(
+        pair_transitions,
+        by = "place_id"
+      )
+
+    for (event_name in spatial_transition_joincount_events) {
+      event_value <- as.integer(
+        pair_spatial$transition == event_name
+      )
+      event_value[is.na(event_value)] <- 0L
+
+      transition_joincount_list[[transition_joincount_index]] <- local_joincount_one(
+        place_ids = pair_spatial$place_id,
+        event_value = event_value,
+        phase_pair_value = current_pair,
+        phase_pair_order_value = current_pair_order,
+        event_name = event_name,
+        listw_binary = spatial_listw_binary
+      )
+
+      transition_joincount_index <- transition_joincount_index + 1L
+    }
+  }
+
+  spatial_transition_joincount <- dplyr::bind_rows(
+    transition_joincount_list
+  )
+
+  spatial_transition_joincount_sf <- chronology_place_continuity_sf |>
+    dplyr::select(place_id) |>
+    dplyr::left_join(
+      spatial_transition_joincount,
+      by = "place_id"
+    ) |>
+    dplyr::filter(
+      !is.na(phase_pair)
+    )
+} else {
+  spatial_neighbor_definition <- tibble::tibble(
+    n_points = nrow(chronology_place_continuity_sf),
+    requested_k = spatial_k,
+    effective_k = NA_integer_,
+    symmetric_knn = TRUE,
+    analysis_crs = spatial_analysis_crs,
+    local_significance_alpha = spatial_alpha,
+    local_p_adjustment = "BH",
+    local_permutations = spatial_permutations,
+    min_edge_distance_m = NA_real_,
+    median_edge_distance_m = NA_real_,
+    max_edge_distance_m = NA_real_
+  )
+
+  spatial_neighbor_edges <- tibble::tibble(
+    from_index = integer(0),
+    to_index = integer(0),
+    from_place_id = character(0),
+    to_place_id = character(0),
+    edge_distance_m = double(0)
+  )
+  spatial_neighbor_edges_sf <- sf::st_sf(
+    geometry = sf::st_sfc(
+      crs = 4326
+    )
+  )
+  spatial_global_moran <- empty_global_moran()
+  spatial_local_lisa <- empty_local_lisa()
+  spatial_transition_global_moran <- empty_transition_global()
+  spatial_transition_joincount <- empty_transition_joincount()
+  spatial_continuity_gap_lisa_sf <- make_empty_point_sf()
+  spatial_transition_joincount_sf <- make_empty_point_sf()
+
+  warning(
+    "有効な座標を持つ地点が3件未満のため、空間クラスタ分析をスキップします。"
+  )
+}
+
+readr::write_csv(
+  spatial_neighbor_definition,
+  file.path(
+    csv_dir,
+    "spatial_neighbor_definition.csv"
+  )
+)
+
+readr::write_csv(
+  spatial_neighbor_edges,
+  file.path(
+    csv_dir,
+    "spatial_neighbor_edges.csv"
+  )
+)
+
+readr::write_csv(
+  spatial_global_moran,
+  file.path(
+    csv_dir,
+    "spatial_global_moran.csv"
+  )
+)
+
+readr::write_csv(
+  spatial_local_lisa,
+  file.path(
+    csv_dir,
+    "spatial_local_lisa.csv"
+  )
+)
+
+readr::write_csv(
+  spatial_transition_global_moran,
+  file.path(
+    csv_dir,
+    "spatial_transition_global_moran.csv"
+  )
+)
+
+readr::write_csv(
+  spatial_transition_joincount,
+  file.path(
+    csv_dir,
+    "spatial_transition_joincount.csv"
+  )
+)
+
+print(spatial_neighbor_definition)
+print(spatial_global_moran)
+print(spatial_transition_global_moran)
+print(
+  spatial_transition_joincount |>
+    dplyr::count(
+      phase_pair,
+      event_type,
+      test_status,
+      joincount_class,
+      name = "n_places"
+    )
+)
+```
+
+# 16. figures-phase-and-index
+
+**目的**：時期別出現数、継続性指標、系列分類、隣接時期間のactive transition図を出力する。
+
+```{r c16_figures_phase_and_index, eval=TRUE}
+p_phase_presence <- ggplot2::ggplot(
+  phase_presence_summary,
+  ggplot2::aes(
+    x = stats::reorder(
+      phase_code,
+      phase_order
+    ),
+    y = presence_count
+  )
+) +
+  ggplot2::geom_col() +
+  ggplot2::labs(
+    title = "Phase presence count",
+    subtitle = "Input records after EM-only and special SiteType exclusions",
+    x = "Phase",
+    y = "Presence count"
+  ) +
+  ggplot2::theme_minimal()
+
+p_sequence_class <- place_continuity_summary |>
+  dplyr::count(
+    sequence_class_code,
+    sequence_class,
+    name = "n_places"
+  ) |>
+  dplyr::mutate(
+    sequence_class = factor(
+      as.character(sequence_class),
+      levels = sequence_class_levels
+    )
+  ) |>
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = sequence_class,
+      y = n_places
+    )
+  ) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::labs(
+    title = "Sequence class count",
+    subtitle = "Classes are defined by presence_phase_count, longest_run_length, and gap_count",
+    x = "Sequence class",
+    y = "Places"
+  ) +
+  ggplot2::theme_minimal()
+
+p_continuity_hist <- ggplot2::ggplot(
+  place_continuity_summary,
+  ggplot2::aes(
+    x = continuity_index
+  )
+) +
+  ggplot2::geom_histogram(
+    bins = 30
+  ) +
+  ggplot2::labs(
+    title = "Continuity index distribution",
+    subtitle = "Index uses all-phase coverage, longest run, and gap-free span",
+    x = "Continuity index",
+    y = "Places"
+  ) +
+  ggplot2::theme_minimal()
+
+p_transition <- phase_transition_summary |>
+  dplyr::mutate(
+    transition = factor(
+      transition,
+      levels = transition_levels
+    ),
+    phase_pair = stats::reorder(
+      phase_pair,
+      phase_pair_order
+    )
+  ) |>
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = phase_pair,
+      y = transition_rate_active,
+      fill = transition
+    )
+  ) +
+  ggplot2::geom_col() +
+  ggplot2::labs(
+    title = "Adjacent phase transition summary",
+    subtitle = "apparent_absence_continue is excluded; rates use active_total_places as denominator",
+    x = "Phase pair",
+    y = "Active transition rate"
+  ) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+figure_files <- c(
+  phase_presence = file.path(
+    figure_dir,
+    "figure_phase_presence_count.png"
+  ),
+  sequence_class = file.path(
+    figure_dir,
+    "figure_sequence_class_count.png"
+  ),
+  continuity_hist = file.path(
+    figure_dir,
+    "figure_continuity_index_histogram.png"
+  ),
+  transition = file.path(
+    figure_dir,
+    "figure_phase_transition_summary.png"
+  )
+)
+
+ggplot2::ggsave(
+  figure_files[["phase_presence"]],
+  p_phase_presence,
+  width = 8,
+  height = 4,
+  dpi = 300,
+  bg = "white"
+)
+
+ggplot2::ggsave(
+  figure_files[["sequence_class"]],
+  p_sequence_class,
+  width = 8,
+  height = 4,
+  dpi = 300,
+  bg = "white"
+)
+
+ggplot2::ggsave(
+  figure_files[["continuity_hist"]],
+  p_continuity_hist,
+  width = 8,
+  height = 4,
+  dpi = 300,
+  bg = "white"
+)
+
+ggplot2::ggsave(
+  figure_files[["transition"]],
+  p_transition,
+  width = 8,
+  height = 4,
+  dpi = 300,
+  bg = "white"
+)
+
+p_phase_presence
+p_sequence_class
+p_continuity_hist
+p_transition
+```
+# 17. figures-markov-and-change-point
+
+**目的**：Markov遷移確率と探索的Change-point候補を図化する。
+
+```{r c17_figures_markov_and_change_point, eval=TRUE}
+p_markov_transition <- markov_transition_by_phase |>
+  dplyr::mutate(
+    phase_pair = factor(
+      phase_pair,
+      levels = phase_transition_pair_table |>
+        dplyr::arrange(phase_pair_order) |>
+        dplyr::pull(phase_pair)
+    )
+  ) |>
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = phase_pair,
+      y = transition_probability,
+      group = transition_label,
+      linetype = transition_label
+    )
+  ) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point() +
+  ggplot2::labs(
+    title = "Markov transition probabilities by phase pair",
+    subtitle = "Two-state first-order transition model; all four transitions are retained",
+    x = "Phase pair",
+    y = "Conditional transition probability",
+    linetype = "Transition"
+  ) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+p_change_point <- ggplot2::ggplot(
+  change_point_candidates,
+  ggplot2::aes(
+    x = candidate_order,
+    y = change_score
+  )
+) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point() +
+  ggplot2::geom_point(
+    data = change_point_candidates |>
+      dplyr::filter(best_candidate),
+    size = 3
+  ) +
+  ggplot2::geom_text(
+    data = change_point_candidates |>
+      dplyr::filter(best_candidate),
+    ggplot2::aes(
+      label = change_label
+    ),
+    vjust = -0.8,
+    check_overlap = TRUE
+  ) +
+  ggplot2::facet_wrap(
+    ~ metric,
+    scales = "free_x"
+  ) +
+  ggplot2::labs(
+    title = "Exploratory single-break change-point screening",
+    subtitle = "Score = proportional SSE reduction; larger values indicate stronger candidate breaks",
+    x = "Candidate split position",
+    y = "Change score"
+  ) +
+  ggplot2::theme_minimal()
+
+ggplot2::ggsave(
+  file.path(
+    figure_dir,
+    "figure_markov_transition_probability.png"
+  ),
+  p_markov_transition,
+  width = 10,
+  height = 5,
+  dpi = 300,
+  bg = "white"
+)
+
+ggplot2::ggsave(
+  file.path(
+    figure_dir,
+    "figure_change_point_scores.png"
+  ),
+  p_change_point,
+  width = 10,
+  height = 7,
+  dpi = 300,
+  bg = "white"
+)
+
+p_markov_transition
+p_change_point
+```
+# 18. figures-sequence-heatmap
+
+**目的**：地点×時期のpresence/apparent_absence系列をヒートマップで確認する。
+
+```{r c18_figures_sequence_heatmap, eval=TRUE}
+heatmap_order <- place_continuity_summary |>
+  dplyr::arrange(
+    sequence_cluster_id,
+    sequence_class_code,
+    dplyr::desc(continuity_index),
+    dplyr::desc(presence_phase_count),
+    place_id
+  ) |>
+  dplyr::mutate(heatmap_order = dplyr::row_number()) |>
+  dplyr::select(place_id, heatmap_order)
+
+sequence_heatmap_data <- place_phase_long |>
+  dplyr::select(place_id, phase_code, phase_order, presence_status, presence) |>
+  dplyr::left_join(heatmap_order, by = "place_id") |>
+  dplyr::filter(!is.na(heatmap_order))
+
+p_sequence_heatmap <- ggplot2::ggplot(
+  sequence_heatmap_data,
+  ggplot2::aes(x = stats::reorder(phase_code, phase_order), y = heatmap_order, fill = presence_status)
+) +
+  ggplot2::geom_tile() +
+  ggplot2::scale_y_reverse() +
+  ggplot2::labs(
+    title = "Place-phase sequence heatmap",
+    x = "Phase",
+    y = "Places ordered by cluster and continuity",
+    fill = "Status"
+  ) +
+  ggplot2::theme_minimal()
+
+p_cluster_profile <- ggplot2::ggplot(
+  cluster_phase_profile,
+  ggplot2::aes(
+    x = stats::reorder(phase_code, phase_order),
+    y = presence_rate,
+    group = sequence_cluster_id
+  )
+) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point() +
+  ggplot2::facet_wrap(~ sequence_cluster_label) +
+  ggplot2::labs(
+    title = "Sequence cluster phase profile",
+    subtitle = "Facet labels show sequence cluster ID and typical active phases",
+    x = "Phase",
+    y = "Presence rate"
+  ) +
+  ggplot2::theme_minimal()
+
+ggplot2::ggsave(
+  file.path(figure_dir, "figure_sequence_heatmap.png"),
+  p_sequence_heatmap,
+  width = 8,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+ggplot2::ggsave(
+  file.path(figure_dir, "figure_cluster_phase_profile.png"),
+  p_cluster_profile,
+  width = 10,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+p_sequence_heatmap
+p_cluster_profile
+```
+# 19. figures-run-gap-timeline
+
+**目的**：runとgapの位置を時期順序上で確認する。
+
+```{r c19_figures_run_gap_timeline, eval=TRUE}
+timeline_place_order <- place_continuity_summary |>
+  dplyr::filter(presence_phase_count > 0) |>
+  dplyr::arrange(
+    sequence_cluster_id,
+    sequence_class_code,
+    dplyr::desc(continuity_index),
+    place_id
+  ) |>
+  dplyr::mutate(timeline_y = dplyr::row_number()) |>
+  dplyr::select(place_id, timeline_y)
+
+run_timeline_data <- place_run_events |>
+  dplyr::left_join(timeline_place_order, by = "place_id") |>
+  dplyr::filter(!is.na(timeline_y))
+
+gap_timeline_data <- place_gap_events |>
+  dplyr::left_join(timeline_place_order, by = "place_id") |>
+  dplyr::filter(!is.na(timeline_y))
+
+p_run_gap_timeline <- ggplot2::ggplot() +
+  ggplot2::geom_segment(
+    data = gap_timeline_data,
+    ggplot2::aes(
+      x = gap_start_order,
+      xend = gap_end_order,
+      y = timeline_y,
+      yend = timeline_y
+    ),
+    linewidth = 0.3,
+    alpha = 0.4
+  ) +
+  ggplot2::geom_segment(
+    data = run_timeline_data,
+    ggplot2::aes(
+      x = run_start_order,
+      xend = run_end_order,
+      y = timeline_y,
+      yend = timeline_y
+    ),
+    linewidth = 0.8
+  ) +
+  ggplot2::scale_x_continuous(
+    breaks = chronology_phase_table$phase_order,
+    labels = chronology_phase_table$phase_code
+  ) +
+  ggplot2::labs(
+    title = "Run and gap timeline",
+    subtitle = "Gap means intervening apparent_absence between presence runs",
+    x = "Phase",
+    y = "Places ordered by cluster and continuity"
+  ) +
+  ggplot2::theme_minimal()
+
+ggplot2::ggsave(
+  file.path(figure_dir, "figure_run_gap_timeline.png"),
+  p_run_gap_timeline,
+  width = 10,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+p_run_gap_timeline
+```
+# 20. figures-spatial-clusters
+
+**目的**：継続性・断続性のLISAクラスタと、時期遷移 `new / drop` のLocal Join Countクラスタを地図化する。
+
+```{r c20_figures_spatial_clusters, eval=TRUE}
+spatial_figure_files <- character(0)
+
+if (
+  spatial_analysis_available &&
+    nrow(spatial_continuity_gap_lisa_sf) > 0
+) {
+  if (
+    "continuity_index_lisa_class" %in%
+      names(spatial_continuity_gap_lisa_sf)
+  ) {
+    p_spatial_continuity_lisa <- ggplot2::ggplot(
+      spatial_continuity_gap_lisa_sf
+    ) +
+      ggplot2::geom_sf(
+        ggplot2::aes(
+          color = continuity_index_lisa_class
+        ),
+        size = 0.8,
+        alpha = 0.8
+      ) +
+      ggplot2::labs(
+        title = "Local Moran's I: continuity index",
+        subtitle = "999 conditional permutations; BH-adjusted local significance; symmetric k-nearest-neighbor weights",
+        color = "LISA class"
+      ) +
+      ggplot2::theme_minimal()
+
+    continuity_lisa_file <- file.path(
+      figure_dir,
+      "figure_spatial_continuity_lisa.png"
+    )
+
+    ggplot2::ggsave(
+      continuity_lisa_file,
+      p_spatial_continuity_lisa,
+      width = 8,
+      height = 7,
+      dpi = 300,
+      bg = "white"
+    )
+
+    spatial_figure_files <- c(
+      spatial_figure_files,
+      continuity_lisa_file
+    )
+
+    print(p_spatial_continuity_lisa)
+  }
+
+  if (
+    "intermittency_index_lisa_class" %in%
+      names(spatial_continuity_gap_lisa_sf)
+  ) {
+    p_spatial_gap_lisa <- ggplot2::ggplot(
+      spatial_continuity_gap_lisa_sf
+    ) +
+      ggplot2::geom_sf(
+        ggplot2::aes(
+          color = intermittency_index_lisa_class
+        ),
+        size = 0.8,
+        alpha = 0.8
+      ) +
+      ggplot2::labs(
+        title = "Local Moran's I: intermittency index",
+        subtitle = "999 conditional permutations; BH-adjusted local significance; symmetric k-nearest-neighbor weights",
+        color = "LISA class"
+      ) +
+      ggplot2::theme_minimal()
+
+    gap_lisa_file <- file.path(
+      figure_dir,
+      "figure_spatial_gap_lisa.png"
+    )
+
+    ggplot2::ggsave(
+      gap_lisa_file,
+      p_spatial_gap_lisa,
+      width = 8,
+      height = 7,
+      dpi = 300,
+      bg = "white"
+    )
+
+    spatial_figure_files <- c(
+      spatial_figure_files,
+      gap_lisa_file
+    )
+
+    print(p_spatial_gap_lisa)
+  }
+}
+
+transition_joincount_plot_data <- if (
+  inherits(spatial_transition_joincount_sf, "sf")
+) {
+  spatial_transition_joincount_sf |>
+    dplyr::filter(
+      event_type %in% c(
+        "new",
+        "drop"
+      )
+    ) |>
+    dplyr::mutate(
+      phase_pair = factor(
+        phase_pair,
+        levels = phase_transition_pair_table |>
+          dplyr::arrange(
+            phase_pair_order
+          ) |>
+          dplyr::pull(
+            phase_pair
+          )
+      )
+    )
+} else {
+  make_empty_point_sf()
+}
+
+if (
+  spatial_analysis_available &&
+    nrow(transition_joincount_plot_data) > 0
+) {
+  p_spatial_transition_joincount <- ggplot2::ggplot(
+    transition_joincount_plot_data
+  ) +
+    ggplot2::geom_sf(
+      ggplot2::aes(
+        color = joincount_class
+      ),
+      size = 0.45,
+      alpha = 0.7
+    ) +
+    ggplot2::facet_grid(
+      event_type ~ phase_pair
+    ) +
+    ggplot2::labs(
+      title = "Local clusters of new/drop transitions",
+      subtitle = "Local Join Count; 999 conditional permutations; BH-adjusted p-values among event points",
+      color = "Join-count class"
+    ) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(
+      axis.text = ggplot2::element_blank(),
+      axis.ticks = ggplot2::element_blank()
+    )
+
+  transition_joincount_file <- file.path(
+    figure_dir,
+    "figure_spatial_transition_joincount.png"
+  )
+
+  ggplot2::ggsave(
+    transition_joincount_file,
+    p_spatial_transition_joincount,
+    width = 16,
+    height = 7,
+    dpi = 300,
+    bg = "white"
+  )
+
+  spatial_figure_files <- c(
+    spatial_figure_files,
+    transition_joincount_file
+  )
+
+  print(p_spatial_transition_joincount)
+}
+```
+
+# 21. export-gpkg
+
+**目的**：QGISで確認するため、`Continuity.gpkg` に地点別評価、地点×時期、時期遷移、run/gap、特殊SiteType、空間クラスタ関連レイヤを出力する。既存GPKGは削除せず、同名レイヤのみ更新する。
+
+```{r c21_export_gpkg, eval=TRUE}
+write_optional_gpkg_layer <- function(
+  x,
+  gpkg_path,
+  layer_name
+) {
+  if (
+    inherits(x, "sf") &&
+      nrow(x) > 0
+  ) {
+    write_gpkg_layer_safe(
+      x,
+      gpkg_path,
+      layer_name
+    )
+    return(TRUE)
+  }
+
+  FALSE
+}
+
+gpkg_written <- c(
+  chronology_place_continuity = write_optional_gpkg_layer(
+    chronology_place_continuity_sf,
+    continuity_gpkg,
+    "chronology_place_continuity"
+  ),
+
+  chronology_place_phase_presence = write_optional_gpkg_layer(
+    chronology_place_phase_presence_sf,
+    continuity_gpkg,
+    "chronology_place_phase_presence"
+  ),
+
+  chronology_phase_transition = write_optional_gpkg_layer(
+    chronology_phase_transition_sf,
+    continuity_gpkg,
+    "chronology_phase_transition"
+  ),
+
+  chronology_run_events = write_optional_gpkg_layer(
+    chronology_run_events_sf,
+    continuity_gpkg,
+    "chronology_run_events"
+  ),
+
+  chronology_gap_events = write_optional_gpkg_layer(
+    chronology_gap_events_sf,
+    continuity_gpkg,
+    "chronology_gap_events"
+  ),
+
+  special_category_excluded_points = write_optional_gpkg_layer(
+    special_category_excluded_points_sf,
+    continuity_gpkg,
+    "special_category_excluded_points"
+  ),
+
+  special_site_type_flagged_points = write_optional_gpkg_layer(
+    special_site_type_flagged_points_sf,
+    continuity_gpkg,
+    "special_site_type_flagged_points"
+  ),
+
+  special_function_flagged_points = write_optional_gpkg_layer(
+    special_function_flagged_points_sf,
+    continuity_gpkg,
+    "special_function_flagged_points"
+  ),
+
+  spatial_knn_edges = write_optional_gpkg_layer(
+    spatial_neighbor_edges_sf,
+    continuity_gpkg,
+    "spatial_knn_edges"
+  ),
+
+  spatial_continuity_gap_lisa = write_optional_gpkg_layer(
+    spatial_continuity_gap_lisa_sf,
+    continuity_gpkg,
+    "spatial_continuity_gap_lisa"
+  ),
+
+  spatial_transition_joincount = write_optional_gpkg_layer(
+    spatial_transition_joincount_sf,
+    continuity_gpkg,
+    "spatial_transition_joincount"
+  )
+)
+
+print(gpkg_written)
+
+if (any(gpkg_written)) {
+  cat(
+    "GPKG written:",
+    continuity_gpkg,
+    "\n"
+  )
+} else {
+  warning(
+    "有効なLon/Latまたは出力対象行がないため、GPKGレイヤは作成されませんでした。"
+  )
+}
+```
+# 22. check-outputs
+
+**目的**：CSV、図、GPKGレイヤの出力を確認する。座標がない場合など、条件上作成できない空間出力は `not_expected` として扱う。
+
+```{r c22_check_outputs, eval=TRUE}
+expected_csv <- c(
+  "em_only_exclusion_summary.csv",
+  "input_column_usage_summary.csv",
+  "special_category_exclusion_summary.csv",
+  "special_category_excluded_points.csv",
+  "special_site_type_flag_summary.csv",
+  "special_site_type_flagged_points.csv",
+  "special_function_flag_summary.csv",
+  "special_function_flagged_points.csv",
+  "chronology_phase_table.csv",
+  "sequence_class_definition.csv",
+  "place_phase_long.csv",
+  "place_phase_sequence_wide.csv",
+  "place_run_events.csv",
+  "place_gap_events.csv",
+  "place_continuity_summary.csv",
+  "sequence_pattern_cluster.csv",
+  "place_sequence_cluster.csv",
+  "cluster_phase_profile.csv",
+  "sequence_cluster_summary.csv",
+  "phase_presence_summary.csv",
+  "place_phase_transition_long.csv",
+  "phase_transition_counts_all.csv",
+  "phase_transition_summary.csv",
+  "markov_transition_by_phase.csv",
+  "markov_transition_overall.csv",
+  "change_point_candidates.csv",
+  "change_point_best.csv",
+  "spatial_neighbor_definition.csv",
+  "spatial_neighbor_edges.csv",
+  "spatial_global_moran.csv",
+  "spatial_local_lisa.csv",
+  "spatial_transition_global_moran.csv",
+  "spatial_transition_joincount.csv"
+)
+
+figure_expectation <- tibble::tibble(
+  output_name = c(
+    "figure_phase_presence_count.png",
+    "figure_sequence_class_count.png",
+    "figure_continuity_index_histogram.png",
+    "figure_phase_transition_summary.png",
+    "figure_markov_transition_probability.png",
+    "figure_change_point_scores.png",
+    "figure_sequence_heatmap.png",
+    "figure_cluster_phase_profile.png",
+    "figure_run_gap_timeline.png",
+    "figure_spatial_continuity_lisa.png",
+    "figure_spatial_gap_lisa.png",
+    "figure_spatial_transition_joincount.png"
+  ),
+  expected = c(
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    spatial_analysis_available &&
+      "continuity_index_lisa_class" %in%
+      names(spatial_continuity_gap_lisa_sf),
+    spatial_analysis_available &&
+      "intermittency_index_lisa_class" %in%
+      names(spatial_continuity_gap_lisa_sf),
+    spatial_analysis_available &&
+      nrow(spatial_transition_joincount_sf) > 0
+  )
+)
+
+gpkg_expectation <- tibble::tibble(
+  output_name = c(
+    "chronology_place_continuity",
+    "chronology_place_phase_presence",
+    "chronology_phase_transition",
+    "chronology_run_events",
+    "chronology_gap_events",
+    "special_category_excluded_points",
+    "special_site_type_flagged_points",
+    "special_function_flagged_points",
+    "spatial_knn_edges",
+    "spatial_continuity_gap_lisa",
+    "spatial_transition_joincount"
+  ),
+  object_name = c(
+    "chronology_place_continuity_sf",
+    "chronology_place_phase_presence_sf",
+    "chronology_phase_transition_sf",
+    "chronology_run_events_sf",
+    "chronology_gap_events_sf",
+    "special_category_excluded_points_sf",
+    "special_site_type_flagged_points_sf",
+    "special_function_flagged_points_sf",
+    "spatial_neighbor_edges_sf",
+    "spatial_continuity_gap_lisa_sf",
+    "spatial_transition_joincount_sf"
+  )
+) |>
+  dplyr::mutate(
+    expected = purrr::map_lgl(
+      object_name,
+      ~ exists(.x) &&
+        inherits(get(.x), "sf") &&
+        nrow(get(.x)) > 0
+    )
+  )
+
+csv_check <- tibble::tibble(
+  output_type = "csv",
+  output_name = expected_csv,
+  path = file.path(
+    csv_dir,
+    expected_csv
+  ),
+  expected = TRUE,
+  exists = file.exists(path)
+)
+
+figure_check <- figure_expectation |>
+  dplyr::mutate(
+    output_type = "figure",
+    path = file.path(
+      figure_dir,
+      output_name
+    ),
+    exists = file.exists(path)
+  ) |>
+  dplyr::select(
+    output_type,
+    output_name,
+    path,
+    expected,
+    exists
+  )
+
+if (file.exists(continuity_gpkg)) {
+  actual_gpkg_layers <- sf::st_layers(
+    continuity_gpkg
+  )$name
+} else {
+  actual_gpkg_layers <- character(0)
+}
+
+gpkg_check <- gpkg_expectation |>
+  dplyr::transmute(
+    output_type = "gpkg_layer",
+    output_name = output_name,
+    path = continuity_gpkg,
+    expected = expected,
+    exists = output_name %in% actual_gpkg_layers
+  )
+
+output_check <- dplyr::bind_rows(
+  csv_check,
+  figure_check,
+  gpkg_check
+) |>
+  dplyr::mutate(
+    note = dplyr::case_when(
+      exists ~ "ok",
+      !expected ~ "not_expected",
+      TRUE ~ "missing"
+    )
+  )
+
+print(output_check)
+
+readr::write_csv(
+  output_check,
+  file.path(
+    csv_dir,
+    "output_check.csv"
+  )
+)
+
+missing_outputs <- output_check |>
+  dplyr::filter(
+    expected,
+    !exists
+  )
+
+if (nrow(missing_outputs) > 0) {
+  warning(
+    "未作成の出力があります: ",
+    paste(
+      missing_outputs$output_name,
+      collapse = ", "
+    )
+  )
+}
+```
