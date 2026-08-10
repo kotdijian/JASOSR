@@ -1,0 +1,14 @@
+item,value
+input_rows,6520
+output_rows,6520
+unclassified_sitetype_token_types,151
+unclassified_sitetype_token_occurrences,417
+unbalanced_parenthesis_unclassified_token_types,0
+temporally_ambiguous_assignments,1407
+incompatible_assignments,916
+direct_present_assignments,3405
+domain_unresolved_phase_statuses,393
+general_unresolved_due_to_specialized_ambiguity,145
+domain_presence_when_phase_absent,0
+direct_present_when_phase_absent,0
+duplicate_row_phase_domain,0

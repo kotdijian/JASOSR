@@ -1,0 +1,8 @@
+﻿phase_code,source_phase_regex,note
+Pa,旧石器,Apply to bracket tag text only.
+Jo,縄文|^縄$,Jomon; apply to bracket tag text only.
+Ya,弥生|^弥$,Yayoi; apply to bracket tag text only.
+Ko,古墳,Kofun; apply to bracket tag text only.
+Na,奈良|^奈$,Nara; apply to bracket tag text only.
+He,平安,Heian; apply to bracket tag text only.
+Me,中世|^中$,Medieval; apply to bracket tag text only.

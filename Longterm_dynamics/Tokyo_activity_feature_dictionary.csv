@@ -1,0 +1,5 @@
+﻿activity_domain,keyword_regex,allowed_phases,active,note
+general_activity,住居|竪穴住居|敷石住居|掘立柱建物|貝塚|集落|井戸|水田|畑|町屋|屋敷,Pa;Jo;Ya;Ko;Na;He;Me,TRUE,ArchaeologicalFeaturesの時期タグ付き記述で一般活動を直接確認する。
+monument,前方後円墳|円墳|方墳|古墳|横穴墓|横穴式石室|石室|墳丘|周溝墓|方形周溝墓|経塚|(?<!貝)塚,Ya;Ko;Me,TRUE,時期タグを除いた遺構本文だけを判定する。単なる「墓」「墓地」は対象外。「塚」は「貝塚」を除外。
+institutional,官衙|郡衙|国府|政庁|寺院|寺跡|社寺|神社|伽藍|城館|城跡|居館|館跡|陣屋|関所,Na;He;Me,TRUE,制度・宗教・城館等。時期タグと整合する場合のみ直接付与。
+production,窯|灰原|鍛冶|製鉄|鉄滓|工房|鋳造|鋳物|炭窯|炭焼|生産,Ko;Na;He;Me,TRUE,窯業・金属生産・工房等。

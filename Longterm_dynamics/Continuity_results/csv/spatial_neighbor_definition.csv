@@ -1,2 +1,0 @@
-n_points,requested_k,effective_k,symmetric_knn,analysis_crs,local_significance_alpha,local_p_adjustment,local_permutations,min_edge_distance_m,median_edge_distance_m,max_edge_distance_m
-5030,8,8,TRUE,6677,0.05,BH,999,0,391.8231191885337,5225.4825399458405

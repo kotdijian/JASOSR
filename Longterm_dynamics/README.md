@@ -1,186 +1,657 @@
 # 遺跡分布長期動態解析
-## 1. 基本方針
-   - 0-1ベクトル化した時代・時期区分データを持つポイント・フューチャーとしての「遺跡」を対象とする
-   
-## 2. 分析手順
-   
-   ### 2-1. 前処理：分析データの定義と整形
-   
-   - 目的：分析対象と除外条件を統一し、比較可能な時系列データを整える
-   - 達成指標：対象7時期・除外対象・特殊SiteTypeが一貫したルールで整理されている
 
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **前処理** | `input_csv` | 入力CSV指定 | `13Tokyo_chronology.csv` を入力データとして指定する | `c02` | 入力GPKGは使用しない |
-| **前処理** | `phase_cols` | 解析対象時期列の限定 | `Pa → Jo → Ya → Ko → Na → He → Me` の7列だけを連続性判定に使用する | `c02`, `c06` | その他の年代列は連続性判定には使用しない |
-| **前処理** | `em_only_flag` | EMのみ地点の除外 | `EM` のみに該当し、他の年代列に記録がない地点を主分析から除外する | `c03` | `em_only_exclusion_summary.csv` に件数を記録 |
-| **前処理** | `site_type_tokens` | SiteTypeカテゴリ分解 | `SiteType` を複数カテゴリに分解し、排他的特殊カテゴリか複合カテゴリかを判定する | `c04` | `古墳群+集落` などの複合SiteTypeを誤除外しない |
-| **前処理** | `ko_single_phase` | 古墳時代単独地点判定 | 対象7時期のうち `Ko` のみに出現する地点を判定する | `c04` | 古墳・横穴墓等の除外条件に使用 |
-| **前処理** | `me_single_phase` | 中世単独地点判定 | 対象7時期のうち `Me` のみに出現する地点を判定する | `c04` | 塚・墓地・板碑出土地等の除外条件に使用 |
-| **前処理** | `exclude_special_site_type` | 排他的特殊SiteType除外 | `Ko`単独の古墳系、または`Me`単独の塚・墓地系で、SiteTypeが排他的特殊カテゴリのみの地点を除外する | `c04` | 複合SiteTypeは除外しない |
-| **前処理** | `has_special_site_type_flag` | 複合特殊SiteTypeフラグ | 除外カテゴリを含む複合地点を主分析に残して識別可能にする | `c04`, `c06`, `c09` | New/Drop等の解釈用補助属性 |
-| **前処理** | `has_special_function_site_type` | 特殊機能カテゴリフラグ | 城館・居館・窯・生産・工房等を除外せず識別可能にする | `c04`, `c06`, `c09` | 土地利用・機能転換の解釈に利用 |
-| **前処理** | `special_category_excluded_points` | 除外地点保存 | 特殊SiteTypeにより主分析から除外した地点を保存する | `c04`, `c14`, `c21`, `c22` | CSVおよびGPKGレイヤに出力 |
-| **前処理** | `special_site_type_flagged_points` | 特殊SiteType保持地点保存 | 除外せず特殊SiteTypeフラグを付けた地点を保存する | `c04`, `c14`, `c21`, `c22` | CSVおよびGPKGレイヤに出力 |
-| **前処理** | `special_function_flagged_points` | 特殊機能地点保存 | 城館・居館・窯・生産・工房等の地点を保存する | `c04`, `c14`, `c21`, `c22` | CSVおよびGPKGレイヤに出力 |
-| **前処理** | `chronology_phase_table` | 時期順序表 | 7時期のコード・順序・日英ラベルを作成する | `c05` | `chronology_phase_table.csv` に出力 |
-| **前処理** | `place_phase_long` | 地点×時期long表 | 各地点・各時期のpresence/apparent_absenceを縦持ちで記録する | `c06` | `place_phase_long.csv` に出力 |
-| **前処理** | `place_phase_sequence_wide` | 地点別時系列wide表 | 地点を1行、7時期を列として0/1系列を保持する | `c06` | `place_phase_sequence_wide.csv` に出力 |
-| **前処理** | `presence_status` | 出現状態ラベル | `1 = presence`, `0 = apparent_absence` として扱う | `c06` | 0は実在の不在を意味しない |
+## 1. このREADMEの位置づけ
 
-   ### 2-2. 単純指標分析：連続性基本指標の定量化
-    
-   - 目的：各地点の出現期間・連続性・断続性を基本指標として定量化する
-   - 達成目標：presence_phase_count` `longest_run_length` `gap_count・continuity_index` 等が全地点について算出されている
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **単純指標** | `place_run_events` | Run-length analysis | 地点ごとの連続出現区間を抽出する | `c07` | `place_run_events.csv` に出力 |
-| **単純指標** | `run_count` | run数 | 地点ごとの連続出現区間数を数える | `c07`, `c09` | 連続性分類の基礎指標 |
-| **単純指標** | `longest_run_length` | 最長連続出現時期数 | 地点ごとの最長runを算出する | `c07`, `c09` | 空間クラスタ分析対象にも使用 |
-| **単純指標** | `place_gap_events` | Gap analysis | 出現run間に挟まるapparent_absence区間を抽出する | `c08` | `place_gap_events.csv` に出力 |
-| **単純指標** | `gap_count` | gap数 | 出現run間に挟まるgapの数を算出する | `c08`, `c09` | 前後端のabsenceはgapに含めない |
-| **単純指標** | `gap_phase_count` | gap総時期数 | run間gapの総時期数を算出する | `c08`, `c09` | `gap_penalty` の構成要素 |
-| **単純指標** | `max_gap_length` | 最大gap長 | 地点ごとの最大gap長を算出する | `c08`, `c09` | 空間クラスタ分析対象にも使用 |
-| **単純指標** | `presence_phase_count` | 出現時期数 | 7時期中のpresence時期数を算出する | `c09` | 基本的な利用幅指標 |
-| **単純指標** | `first_presence_phase` | 初出時期 | 最初にpresenceとなる時期を取得する | `c09` | `first_presence_order` も保持 |
-| **単純指標** | `last_presence_phase` | 終出時期 | 最後にpresenceとなる時期を取得する | `c09` | `last_presence_order` も保持 |
-| **単純指標** | `observed_span_phase_count` | 記録上の存続幅 | 初出から終出までの時期幅を算出する | `c09` | 間のgapを含む |
-| **単純指標** | `presence_ratio_all_phases` | 全期間出現比率 | 7時期全体に対するpresence時期数の比率を算出する | `c09` | 改訂Continuity indexの構成要素 |
-| **単純指標** | `longest_run_ratio_all_phases` | 全期間最長run比率 | 7時期全体に対する最長runの比率を算出する | `c09` | 改訂Continuity indexの構成要素 |
-| **単純指標** | `gap_penalty` | gap減点指標 | 初出〜終出区間に含まれるgapの割合を評価する | `c09` | `continuity_index`, `intermittency_index` に使用 |
-| **単純指標** | `continuity_index` | 継続性総合指標 | 全期間出現比率、全期間最長run比率、gap-free spanを統合する | `c09`, `c15`, `c16` | 単一時期地点の過大評価を避けるよう式を改訂 |
-| **単純指標** | `intermittency_index` | 断続性指標 | gapの大きさから断続性を評価する | `c09`, `c15` | 空間クラスタ分析対象 |
+本プロジェクトは、東京都の遺跡地点を対象として、旧石器時代から中世までの長期的な出現・継続・中断・再出現・機能転換を、時系列分析・空間統計・自然地理単位・activity domainの組合せによって評価するものである。
 
-   ### 2-3. 継続性分類：時系列動態の類型化
-   - 目的：地点ごとの時系列パターンを類型化し、継続・短期・断続・再出現を比較可能にする
-   - 達成目標：`sequence_class` と `sequence_cluster_id` により各地点の利用履歴が分類されている
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **継続性分類** | `sequence_class_definition` | 分類基準表 | sequence class codeと分類条件を明示する | `c09` | `sequence_class_definition.csv` に出力 |
-| **継続性分類** | `sequence_class_code` | 数値分類 | sequence classに0〜6の数値コードを付与する | `c09` | 各分類を機械的に扱うためのコード |
-| **継続性分類** | `sequence_class` | 継続性分類ラベル | 出現時期数、最長run、gap数に基づいて地点を分類する | `c09` | `place_continuity_summary.csv` に出力 |
-| **継続性分類** | `no_presence` | 出現なし | 対象7時期に出現記録がない地点 | `c09`, `c16` | `sequence_class_code = 0` |
-| **継続性分類** | `single_phase` | 単一時期利用型 | 出現記録が1時期のみの地点 | `c09`, `c16` | `sequence_class_code = 1` |
-| **継続性分類** | `continuous_2phase` | 短期連続型 | gapなし、かつ最長runが2時期の地点 | `c09`, `c16` | `sequence_class_code = 2` |
-| **継続性分類** | `continuous_3_4phase` | 中期連続型 | gapなし、かつ最長runが3〜4時期の地点 | `c09`, `c16` | `sequence_class_code = 3` |
-| **継続性分類** | `continuous_5_7phase` | 長期連続型 | gapなし、かつ最長runが5〜7時期の地点 | `c09`, `c16` | `sequence_class_code = 4` |
-| **継続性分類** | `intermittent_gap1` | 単回断続・再出現型 | 出現runの間に1回のgapを挟む地点 | `c09`, `c16` | `sequence_class_code = 5` |
-| **継続性分類** | `intermittent_gap2plus` | 複数断続・再出現型 | 出現runの間に2回以上のgapを挟む地点 | `c09`, `c16` | `sequence_class_code = 6` |
-| **継続性分類** | `recurrent` | 再出現概念 | gap後に再びpresenceとなる利用履歴 | `c09` | 独立クラスではなく `intermittent_gap1` / `intermittent_gap2plus` に包含 |
-| **継続性分類** | `unknown_dominated` | 不明優勢型 | unknownが多い地点を分類する想定 |  | 現行Rmdではunknown状態を設けていないため未実装 |
-| **継続性分類** | `sequence_pattern_cluster` | 系列パターンクラスタ | ユニークな7時期0/1系列をJaccard距離でクラスタリングする | `c10` | 最大128種類の系列パターンを対象 |
-| **継続性分類** | `sequence_cluster_id` | 地点への系列クラスタ付与 | 系列パターンクラスタを各地点へ戻して付与する | `c10` | `place_sequence_cluster.csv` に出力 |
-| **継続性分類** | `cluster_phase_profile` | クラスタ別時期プロファイル | 各sequence clusterの時期別presence率を算出する | `c10`, `c18` | CSVおよび図に出力 |
-| **継続性分類** | `sequence_cluster_summary` | クラスタ要約 | クラスタごとの地点数、代表系列、平均継続性指標をまとめる | `c10` | `sequence_cluster_summary.csv` に出力 |
+本READMEは、最終版Rmdの操作説明だけではなく、**分析手法をどのように検討し、どの方法を採用・修正・不採用としたかを記録する方法論ドキュメント**として位置づける。
 
-   ### 2-4. 時期遷移：時系列動態の定量化
-   - 目的：隣接時期間における継続・消失・出現の変化を定量化する
-   - 達成目標：各時期ペアについて `continue` `drop` `new` の件数と構成比が算出されている
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **時期遷移** | `phase_presence_summary` | 時期別出現量 | 各時期のpresence数・率を集計する | `c11`, `c16` | `phase_presence_summary.csv` に出力 |
-| **時期遷移** | `phase_transition_long` | 地点別隣接時期遷移 | 各地点について隣接時期間の状態遷移を作成する | `c11`, `c14`, `c15` | `place_phase_transition_long.csv` に出力 |
-| **時期遷移** | `continue` | 継続遷移 | `1 → 1` を表す | `c11` | active transition |
-| **時期遷移** | `drop` | 記録上の消失 | `1 → 0` を表す | `c11`, `c15` | Local Join Countによる空間クラスタ分析対象 |
-| **時期遷移** | `new` | 記録上の出現・再出現 | `0 → 1` を表す | `c11`, `c15` | Local Join Countによる空間クラスタ分析対象 |
-| **時期遷移** | `apparent_absence_continue` | 記録上の不在継続 | `0 → 0` を表す | `c11`, `c12` | active transition集計からは除外、Markovでは保持 |
-| **時期遷移** | `transition_rate_active` | active transition率 | `continue / drop / new` 内で構成比を算出する | `c11`, `c13`, `c16` | `0→0` は分母から除外 |
-| **時期遷移** | `markov_transition_by_phase` | 時期別Markov遷移確率 | 2状態一次Markovとして各時期ペアの条件付き遷移確率を算出する | `c12`, `c17` | `0→0` を含む全4遷移を使用 |
-| **時期遷移** | `markov_transition_overall` | 全時期プールMarkov遷移 | 全時期ペアをプールした条件付き遷移確率を算出する | `c12` | 時期を順序カテゴリとして扱い、等時間幅は仮定しない |
-| **時期遷移** | `change_point_candidates` | 転換候補探索 | presence率とactive transition率の単一break候補をSSE改善率で評価する | `c13`, `c17` | 7時期のため探索的スクリーニングとして実装 |
-| **時期遷移** | `change_point_best` | 最有力転換候補 | 各系列で最大のchange scoreを持つ候補を抽出する | `c13` | 統計的有意性を意味しない |
-| **時期遷移** | `transition` | 遷移分類 | 隣接時期間の状態変化を `continue`, `drop`, `new`, `apparent_absence_continue` に分類する | `c11` | 地点×時期ペア単位で保持 |
-| **時期遷移** | `apparent_absence_continue_excluded` | 除外された不在継続数 | active transition集計から除外した `0 → 0` の地点数を記録する | `c11` | `phase_transition_summary.csv` に補足列として保持 |
-| **時期遷移** | `active_total_places` | active transition分母 | `continue + drop + new` の合計地点数を各時期ペアの分母として保持する | `c11`, `c16` | `apparent_absence_continue` は含めない |
+したがって、以下では次の3種類を区別する。
 
-   ### 2-5. 空間クラスタ：時系列動態の空間分布把握
-   - 目的：継続・断続・出現・消失が空間的に集中する領域を統計的に検出する
-   - 達成目標：継続性・gap・new/drop について有意な局所クラスタと空間自己相関が識別されている
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **空間クラスタ** | `spatial_neighbor_definition` | 空間近傍定義 | 投影座標上の対称k近傍を空間重みとして定義する | `c15` | 既定 `k = 8`; CRSはEPSG:6677。近傍辺距離のmin/median/maxも記録 |
-| **空間クラスタ** | `spatial_neighbor_edges` | 近傍構造の検証 | kNN空間重みの辺と距離を保存し、QGIS上で近傍関係を確認可能にする | `c15`, `c21` | `spatial_neighbor_edges.csv` および `spatial_knn_edges` レイヤ |
-| **空間クラスタ** | `spatial_global_moran` | 全体空間自己相関 | `continuity_index`, run, gap, intermittencyのGlobal Moran's Iを算出する | `c15` | `spatial_global_moran.csv` |
-| **空間クラスタ** | `spatial_local_lisa` | 局所空間クラスタ | permutation Local Moran's IでHigh-High, Low-Low, High-Low, Low-Highを検出する | `c15`, `c20` | 999条件付きpermutation、局所p値はBH補正 |
-| **空間クラスタ** | `spatial_continuity_gap_lisa_sf` | 継続・断続クラスタGIS | LISA結果を地点geometryに結合する | `c15`, `c20`, `c21` | `spatial_continuity_gap_lisa` レイヤ |
-| **空間クラスタ** | `spatial_transition_global_moran` | 遷移イベント全体自己相関 | phase pair × `continue/drop/new` の二値イベントにGlobal Moran's Iを算出する | `c15` | 全体的な空間自己相関の診断。`spatial_transition_global_moran.csv` |
-| **空間クラスタ** | `spatial_transition_joincount` | 転換イベント局所集中 | phase pair × `drop/new` の二値イベントにLocal Join Countを適用し、同種イベントの局所集中を検出する | `c15`, `c20` | 999条件付きpermutation。イベント比率が0.5を超える場合は局所検定を実施しない |
-| **空間クラスタ** | `joincount_class` | 転換集中域分類 | Local Join Count結果を `event_cluster / event_not_significant / non_event` 等に分類する | `c15`, `c20` | event地点のpseudo-p値をBH補正 |
+- **採用**：現在の分析結果・解釈に用いる手法。
+- **探索的に保持**：補助的・比較的には有用だが、主要な結論の根拠とはしない手法。
+- **検討後に不採用・置換**：初期段階で検討・実装したが、母集団定義、解釈可能性、データ特性などを理由に最終分析では用いない手法。
 
-   ### 2-6. 図化：解析結果の可視化
-   - 目的：時系列パターンと継続性指標を視覚化し、全体傾向と特徴的な変化を把握する
-   - 達成目標：時期別出現数・分類構成・継続性分布・遷移・系列パターンが図として確認できる
-        
-| **図化** | `figure_phase_presence_count.png` | 時期別出現数図 | 各時期のpresence地点数を表示する | `c16` |  |
-| **図化** | `figure_sequence_class_count.png` | sequence class構成図 | 継続性分類ごとの地点数を表示する | `c16` |  |
-| **図化** | `figure_continuity_index_histogram.png` | 継続性分布図 | `continuity_index` の分布を表示する | `c16` |  |
-| **図化** | `figure_phase_transition_summary.png` | active transition図 | `continue/drop/new` の構成比を時期ペア別に表示する | `c16` | `0→0` は除外 |
-| **図化** | `figure_markov_transition_probability.png` | Markov遷移確率図 | 4遷移の条件付き確率を時期ペア別に表示する | `c17` |  |
-| **図化** | `figure_change_point_scores.png` | 転換候補図 | change scoreと最有力break候補を表示する | `c17` | 探索的評価 |
-| **図化** | `figure_sequence_heatmap.png` | 系列ヒートマップ | 地点×時期のpresence/apparent_absence系列を表示する | `c18` |  |
-| **図化** | `figure_cluster_phase_profile.png` | sequence clusterプロファイル | クラスタ別時期presence率を表示する | `c18` |  |
-| **図化** | `figure_run_gap_timeline.png` | run/gap timeline | 地点ごとのrunとgapを時期軸上に表示する | `c19` |  |
-| **図化** | `figure_spatial_continuity_lisa.png` | 継続性LISA図 | `continuity_index` の局所空間クラスタを表示する | `c20` | 座標がある場合のみ |
-| **図化** | `figure_spatial_gap_lisa.png` | 断続性LISA図 | `intermittency_index` の局所空間クラスタを表示する | `c20` | 座標がある場合のみ |
-| **図化** | `figure_spatial_transition_joincount.png` | new/drop局所クラスタ図 | 各時期ペアのnew/dropのLocal Join Countクラスタを表示する | `c20` | 座標があり、対象イベントが検定可能な場合に解釈 |
+最終的な基準実装は以下である。
 
-   ### 2-7. 空間化：解析結果のgpkg出力
-   - 目的：継続性・断続性・特殊SiteTypeを地理的位置と結び付けて評価可能にする
-   - 達成目標：地点別・時期別・run/gap別の分析結果がGISレイヤとして出力されている
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **空間化** | `chronology_place_continuity_sf` | 地点別評価レイヤ | 継続性・断続性・sequence classを地点geometryに結合する | `c14`, `c21` | `chronology_place_continuity` |
-| **空間化** | `chronology_place_phase_presence_sf` | 地点×時期レイヤ | presence/apparent_absenceを地点×時期でGIS化する | `c14`, `c21` | `chronology_place_phase_presence` |
-| **空間化** | `chronology_phase_transition_sf` | 地点×遷移レイヤ | phase pairごとの `continue/drop/new/0→0` をGIS化する | `c14`, `c21` | `chronology_phase_transition` |
-| **空間化** | `chronology_run_events_sf` | run eventレイヤ | run単位の情報を地点geometry付きで出力する | `c14`, `c21` | `chronology_run_events` |
-| **空間化** | `chronology_gap_events_sf` | gap eventレイヤ | gap単位の情報を地点geometry付きで出力する | `c14`, `c21` | `chronology_gap_events` |
-| **空間化** | `spatial_knn_edges` | 空間重みレイヤ | 空間クラスタ分析に用いたkNN接続を距離属性付き線レイヤで出力する | `c15`, `c21` | 空間分析結果・長距離近傍の検証用 |
-| **空間化** | `spatial_continuity_gap_lisa` | LISA結果レイヤ | 継続・gap系指標のLocal Moran結果をGIS化する | `c15`, `c21` |  |
-| **空間化** | `spatial_transition_joincount` | 遷移局所クラスタレイヤ | phase pair × `drop/new` のLocal Join Count結果をGIS化する | `c15`, `c21` |  |
-| **空間化** | `special_category_excluded_points_sf` | 特殊カテゴリ除外地点レイヤ | 主分析から除外した排他的特殊SiteType地点をGIS化する | `c14`, `c21` | `special_category_excluded_points` としてGPKG出力 |
-| **空間化** | `special_site_type_flagged_points_sf` | 特殊SiteType保持地点レイヤ | 除外せず特殊SiteTypeフラグを付与して保持した地点をGIS化する | `c14`, `c21` | `special_site_type_flagged_points` としてGPKG出力 |
-| **空間化** | `special_function_flagged_points_sf` | 特殊機能地点レイヤ | 城館・居館・窯・生産・工房等の特殊機能地点をGIS化する | `c14`, `c21` | `special_function_flagged_points` としてGPKG出力 |
-| **空間化** | 10mグリッドへの集計 | 継続型分布の作成 | 分類結果を10mグリッド単位に集計する |  | 未実装 |
-| **空間化** | 調査区への集計 | 調査区単位の評価 | 分類結果を調査区ポリゴンに集計する |  | 未実装 |
-| **空間化** | 遺跡範囲への集計 | 遺跡単位の評価 | 分類結果を遺跡範囲ポリゴンに集計する |  | 未実装 |
-| **空間化** | 継続型分布 | 分布図作成 | continuous系クラスの地点・区域を抽出して地図化する |  | 未実装 |
-| **空間化** | 断続型分布 | 分布図作成 | intermittent系クラスの地点・区域を抽出して地図化する |  | 未実装 |
-| **空間化** | 再出現型分布 | 分布図作成 | recurrent相当の地点・区域を抽出して地図化する |  | 未実装 |
-| **空間化** | 短期利用型分布 | 分布図作成 | `single_phase` 地点・区域を抽出して地図化する |  | 未実装 |
-| **空間化** | **Spatio-temporal autocorrelation** | 空間＋時間の連続性 | 近接地点が同時期または隣接時期に連続するかを評価する |  | 未実装 |
-| **空間化** | **Time-sliced kernel density** | 時期別分布変化 | 各時期の密度面を作り、中心の移動・拡大・縮小を評価する |  | 未実装 |
-| **空間化** | **Space-time cube** | 時空間可視化 | 地点×時期を3次元的に積み上げ、継続・断絶を確認する |  | 未実装 |
+- activity-domain前処理：`Tokyo_activity_domain_preprocess_v1_3.Rmd`
+- 長期動態・空間分析：`Site_continuity_analysis_v3_4_activity_domain_local_spatial.Rmd`
+- activity-domain付加済み入力：`13Tokyo_chronology_gsi_landform_activity.csv`
+- 最終分析出力ディレクトリ：`Continuity_results_v3_4`
 
-   ### 2-8. **行動分析**
-   - 目的：時系列変化と空間集中を統合し、遺跡利用の継続・中断・再利用・機能転換を解釈する
-   - 達成指標：継続域、断続・再利用域、新規出現域、消失域および転換時期が行動パターンとして整理されている
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **行動分析** | 継続利用集中域 | 長期的利用の空間集中 | `continuity_index` のHigh-Highを継続利用の集中候補として読む | `c15`, `c20` | 考古学的解釈は別途必要 |
-| **行動分析** | 断続・再利用集中域 | 断続的利用の空間集中 | `intermittency_index` 等のHigh-Highを断続・再利用集中候補として読む | `c15`, `c20` |  |
-| **行動分析** | 新規出現集中域 | 活動開始・再編成の空間集中 | `new` のLocal Join Count `event_cluster` を特定時期の新規出現集中候補として読む | `c15`, `c20` | `apparent_absence` の性格に注意 |
-| **行動分析** | 消失集中域 | 活動縮小・移動の空間集中 | `drop` のLocal Join Count `event_cluster` を特定時期の消失集中候補として読む | `c15`, `c20` | `drop` は確定的廃絶を意味しない |
-| **行動分析** | 遷移持続性 | 時間的な継続傾向 | Markovの `presence → presence` 等の条件付き確率から時期別持続傾向を比較する | `c12`, `c17` | 観測状態Markov model |
-| **行動分析** | 転換候補時期 | 時系列レジーム変化の候補 | `change_point_best` からpresence率・遷移率が大きく変わる境界を抽出する | `c13`, `c17` | 探索的指標 |
+---
 
-   ### 2-7. **出力確認**
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **出力確認** | `output_check` | 出力確認 | CSV、図、GPKGレイヤが作成されたか確認する | `c18` | `output_check.csv` に出力 |
+## 2. 分析対象と基本的な前提
 
+### 2.1 対象
 
-   ### 2-8. **高度分析**
-        
-| 分析フェイズ・カテゴリ | 手法・項目 | 用途 | 簡潔な説明 | 実装chunk番号 | 補足事項 |
-|---|---|---|---|---|---|
-| **高度分析** | Hidden Markov Model | 観測不完全性の補正 | 未調査・未検出を潜在状態と観測状態に分離して推定する |  | 未実装 |
-| **高度分析** | Survival analysis | 存続期間モデル | 活動の継続・終了を生存時間として扱う |  | 未実装 |
-| **高度分析** | Dynamic Time Warping | 時期ずれを許容した系列比較 | 少しずれた利用履歴間の類似性を評価する |  | 未実装 |
-| **高度分析** | Bayesian chronological model | 年代幅の不確実性処理 | 時期区分・年代比定の不確実性を確率的に扱う |  | 未実装 |
+分析単位は、時代・時期区分を0/1で保持するポイント・フィーチャとしての「遺跡地点」である。
+
+対象7時期は以下とする。
+
+| code | 時期 |
+|---|---|
+| `Pa` | 旧石器時代 |
+| `Jo` | 縄文時代 |
+| `Ya` | 弥生時代 |
+| `Ko` | 古墳時代 |
+| `Na` | 奈良時代 |
+| `He` | 平安時代 |
+| `Me` | 中世 |
+
+### 2.2 0の意味
+
+`0` は「その時期に遺跡が存在しなかったことが確認された」ことを意味しない。
+
+本分析では、
+
+- `1 = presence`
+- `0 = apparent_absence`
+
+として扱う。
+
+したがって、`drop` は確定的な廃絶、`new` は確定的な新規成立を意味せず、**現在の遺跡データにおける記録上の消失・出現**として解釈する。
+
+### 2.3 分析母集団
+
+現行分析では次の処理を行う。
+
+- 座標不正地点を除外する。
+- `EM` のみに該当し、対象7時期に出現しない地点を主分析から除外する。
+- 古墳・墓・寺社・城館・窯などの特殊なSiteTypeは、原則としてall_land_useから除外しない。
+- 特殊用途は後述のactivity domainとして別軸で分類する。
+
+この方針により、**「特殊SiteTypeを除外して一般的土地利用だけを見る」のではなく、まず全土地利用を共通母集団として分析し、その内訳をactivity domainで分解する**。
+
+---
+
+## 3. 分析設計の発展と方針決定
+
+### 3.1 特殊SiteTypeの除外からactivity domainへの転換
+
+#### 初期案
+
+初期段階では、古墳時代単独の古墳・横穴墓、中世単独の塚・墓地などを「特殊SiteType」として主分析から除外し、集落等の一般的土地利用を抽出する方法を検討した。
+
+この方法には、時期別地点数の増減が古墳・墓制・寺社・城館・生産遺跡などの増減によって左右される問題を抑える利点があった。
+
+#### 問題点
+
+しかし、次の問題がある。
+
+1. `集落・古墳` のような複合SiteTypeを一律に除外できない。
+2. SiteTypeは遺跡全体の属性であり、その用途がどの時期に対応するかを自動的には決められない。
+3. 特殊地点を除外すると、各時代の土地利用構造そのものを分析対象から失う。
+4. 古墳→奈良のような時代転換では、古墳の減少と一般活動の展開を分けて見る方が考古学的に有益である。
+
+#### 最終方針
+
+特殊SiteType除外を主要手法とはせず、以下の多ラベルactivity domainを導入した。
+
+- `all_land_use`
+- `general_activity`
+- `monument`
+- `institutional`
+- `production`
+
+`SiteType` と `Chronology` は独立情報として扱い、SiteTypeを観測された全時期へ機械的に展開しない。
+
+---
+
+### 3.2 activity-domain前処理の検証
+
+activity-domain分類では、SiteType辞書、ArchaeologicalFeatures辞書、時期対応ルールを用いる。
+
+前処理は監査を通じて段階的に修正した。
+
+#### v1.1で修正した点
+
+- `[古墳時代]住居` の時期タグ「古墳」をmonumentと誤認する問題を修正。
+- `貝塚` の「塚」をmonumentと誤認する問題を修正。
+- `[奈良・平安時代]` 等の複数時期タグを単一時期へ誤確定しないように修正。
+
+#### v1.2で修正した点
+
+- `temporally_ambiguous` を0に変換せず、時期未確定として保持。
+- SiteTypeの括弧内token分割を修正。
+
+#### v1.3で修正した点
+
+- specialized activityの時期帰属が未確定の場合、その不確定性を`general_activity`にも伝播。
+- `domain_presence = NA` を `temporally_unresolved` として保持。
+
+#### 最終方針
+
+activity-domainの時期状態は、
+
+- `1 = present`
+- `0 = resolved non-presence`
+- `NA = temporally_unresolved`
+
+の3状態で保持する。
+
+`NA` はabsenceに変換しない。
+
+---
+
+### 3.3 continuity indexの検討
+
+地点の長期継続性を1つの尺度で比較するため、以下を統合した`continuity_index`を使用する。
+
+- 全7時期に対するpresenceの広がり
+- 最長連続run
+- 初出〜終出間のgapの少なさ
+
+基準重みは以下とする。
+
+| 構成要素 | 重み |
+|---|---:|
+| presence coverage | 0.35 |
+| longest run | 0.40 |
+| gap-free component | 0.25 |
+
+重みを変えた感度分析では順位相関がほぼ1となり、基準重みに強く依存しないことを確認した。
+
+#### 採用しなかった案
+
+各時期を実年代の長さで重み付けする方法も検討対象となったが、対象7区分は年代幅が大きく異なる一方、遺跡データ自体の時間解像度も均一ではない。そのため、**絶対年代幅によるtime weightingは採用しない**。
+
+---
+
+### 3.4 sequence classとsequence clustering
+
+地点ごとの0/1系列を、以下の解釈可能な`sequence_class`に分類する。
+
+- `no_presence`
+- `single_phase`
+- `continuous_2phase`
+- `continuous_3_4phase`
+- `continuous_5_7phase`
+- `intermittent_gap1`
+- `intermittent_gap2plus`
+
+`recurrent`は独立クラスではなく、gap後の再出現を含むintermittent系として扱う。
+
+#### sequence clustering
+
+7時期系列に対するクラスタリングも検討・実装した。
+
+k候補、silhouette、bootstrap stability、cluster imbalance等を比較したが、最良候補でも一つのclusterが大半の地点を占め、考古学的な類型としての解像度が低かった。
+
+そのため、
+
+- `sequence_class` = 主要な類型化
+- sequence clustering = 探索的補助分析
+
+とする。
+
+---
+
+### 3.5 Transitionの母集団
+
+隣接時期間の状態変化を以下に分類する。
+
+- `continue = 1 → 1`
+- `drop = 1 → 0`
+- `new = 0 → 1`
+- `apparent_absence_continue = 0 → 0`
+
+#### 初期実装の問題
+
+初期のTransition空間分析では、0→0地点も含む全地点上で局所統計を計算した。
+
+その結果、例えば`new`のcoldspotの大部分が、実際には「変化がなかった0→0地点」で構成される場合があり、考古学的な解釈を誤らせる可能性があった。
+
+#### 修正後の方針
+
+`continue / drop / new` の構成比とTransition空間分析では、0→0を分母から除外する。
+
+さらに空間分析では、**各phase pairごとにactive transition地点だけを抽出し、その部分集合上でkNN近隣を再構築する**。
+
+一方、Markov分析では0→0も観測状態遷移の一部であるため保持する。
+
+このため、
+
+- Active transition = 変化の構成
+- Markov = 前状態を条件とした4状態遷移
+
+として役割を分ける。
+
+---
+
+### 3.6 Change-point分析
+
+presence率とactive transition構成について、単一break候補をSSE改善率で探索する。
+
+対象が7大区分しかないため、これは厳密な多重change-point推定ではない。
+
+したがって、
+
+- 転換候補を探索するスクリーニング
+- 考古学的に注目すべき画期を比較する補助指標
+
+として使用し、統計的に確定した「変化点」とは表現しない。
+
+---
+
+### 3.7 空間近隣の設定
+
+主分析では対称k-nearest-neighborを用いる。
+
+- k=4
+- k=8
+- k=12
+
+を毎回計算し、**k=8を基準**とする。
+
+さらにfixed-distance 1,000 / 2,000 / 5,000 mを補助的に計算し、kNNの結果が特定の近隣定義だけに依存していないか確認する。
+
+同一座標に複数地点がある場合は、別地点として扱う分析を主とし、座標集約版を感度分析として確認する。
+
+---
+
+### 3.8 Global Moran / Local Moran / Local G* / Local Join Countの使い分け
+
+#### Global Moran's I
+
+対象変数が全体として空間的自己相関を持つかを確認する。
+
+使用対象：
+
+- continuity index
+- run / gap / intermittency
+- transition event
+- activity-domain event
+
+#### Local Moran's I
+
+連続量について、周囲との類似・異質性を検出する。
+
+主な分類：
+
+- High–High
+- Low–Low
+- High–Low
+- Low–High
+
+主にcontinuity、run、gap、intermittencyの局所構造に用いる。
+
+局所p値はBH補正後の値を主要判定に使用する。
+
+#### Local Getis-Ord G*
+
+`new / drop`等の二値イベントについて、高いevent比率・低いevent比率が局所的にまとまる位置を比較する。
+
+ただし、二値イベントがrareな場合にはLocal G*だけでclusterを確定しない。
+
+#### Local Join Count
+
+rare binary eventの局所的な同種隣接を直接評価する。
+
+最終方針は次のとおり。
+
+| event prevalence | Local G* | Local Join Count |
+|---|---|---|
+| `> 0.5` | primary | 補助 |
+| `<= 0.5` | 比較・図示 | primary |
+
+なお、最終v3.4では全画期を比較するため、prevalenceにかかわらずLocal G*を図化する。ただし解釈上のprimary methodは上表に従う。
+
+---
+
+### 3.9 自然地理単位
+
+自治体境界を主要分析単位とはせず、自然地理単位を主とする。
+
+1. `watersystem`
+2. `unit_basin`
+3. `watershed_x_landform`
+
+W07単位流域は、
+
+`W07_002 × W07_006`
+
+を識別単位とする。
+
+自治体は補助診断にのみ用いる。
+
+自然地理別比較における上位・下位25%は「明瞭な差」を記述するための記述的閾値であり、推測統計上の有意差を意味しない。
+
+---
+
+### 3.10 Local spatial analysisの最終構成
+
+#### 第1段階：全画期all_land_use
+
+以下の全6画期について、`new / drop`のLocal G*を同一条件で計算・図化する。
+
+- Pa→Jo
+- Jo→Ya
+- Ya→Ko
+- Ko→Na
+- Na→He
+- He→Me
+
+目的は、activity-domainへ分解する前の共通の空間的背景を提示し、特定画期だけを事後的に選んだように見えることを避けることにある。
+
+#### 第2段階：重点4画期のactivity-domain分析
+
+以下は必ずactivity-domain別局所空間分析を行う。
+
+- Ya→Ko
+- Ko→Na
+- Na→He
+- He→Me
+
+対象domain：
+
+- `general_activity`
+- `monument`
+- `institutional`
+- `production`
+
+比較母集団は、各画期のall_land_use active transition地点とし、そのうち対象domainの前後時期がresolvedな地点だけを用いる。
+
+event数等が少なすぎる場合は、無理に統計量を出さず`not_analyzed_*`として監査出力に残す。
+
+---
+
+### 3.11 Local G*局所集積域の地理的同定
+
+統合レポートでは、Local G*の有意地点数だけでなく、地図上でまとまりを持つ局所集積域を再現可能な方法で同定する。
+
+1. 基準スケールはk=8、局所判定はBH補正後を用いる。
+2. 同一phase pair・event・activity domain・Local G classの有意地点を抽出する。
+3. 実際に分析に使用したkNN edgeのうち、有意地点同士を結ぶedgeを残す。
+4. そのネットワークの連結成分を「Local G*局所集積域」とする。
+5. 本文で主要集積域として命名する記述基準は20地点以上とする。これは統計的有意性の閾値ではなく、地誌的解説のための規模基準である。
+6. 名称はcluster内の主要河川・水系と自治体名からデータ駆動で付し、GSI地形分類・代表遺跡を併記する。
+7. k=12で同じLocal G classに残る地点比率をスケール安定性の補助情報とする。k=4で消失する場合は「より広い近隣スケールで現れる地域差」と解釈する。
+
+Local G*局所集積域は、行政界・文化圏・行動圏の境界を直接表すものではない。とくにevent prevalenceが0.5以下の場合はLocal Join Countをprimaryな局所二値検定とするため、「確定cluster」ではなく「局所集積域」「局所偏在域」と表現する。
+
+## 4. 現行分析フロー
+
+### 4.1 activity-domain前処理
+
+入力：
+
+`13Tokyo_chronology_gsi_landform.csv`
+
+使用：
+
+`Tokyo_activity_domain_preprocess_v1_3.Rmd`
+
+主な出力：
+
+- `13Tokyo_chronology_gsi_landform_activity.csv`
+- `activity_preprocessing_audit.csv`
+- `activity_phase_status.csv`
+- `activity_audit_check.csv`
+- `activity_unclassified_sitetype_tokens.csv`
+- activity-domain監査summary
+
+### 4.2 主分析
+
+使用：
+
+`Site_continuity_analysis_v3_4_activity_domain_local_spatial.Rmd`
+
+主な分析段階：
+
+1. 入力・除外・metadata確認
+2. 7時期presence系列作成
+3. run / gap / continuity指標
+4. sequence class
+5. sequence clustering（探索的）
+6. active transition
+7. Markov
+8. change-point screening
+9. continuity指標のGlobal/Local Moran
+10. transition Global Moran
+11. 全6画期all_land_use Local G*
+12. 自然地理単位比較
+13. activity-domain別presence / transition / Markov / change-point
+14. 重点4画期activity-domain Global Moran / Local G* / Join Count
+15. k=4/8/12・fixed-distance等の感度分析
+16. CSV / Figure / GPKG出力監査
+
+---
+
+## 5. 現行の主要指標
+
+### 5.1 Run / Gap
+
+| 指標 | 意味 |
+|---|---|
+| `presence_phase_count` | 7時期中のpresence時期数 |
+| `run_count` | 連続出現区間数 |
+| `longest_run_length` | 最長連続出現時期数 |
+| `gap_count` | run間のgap数 |
+| `gap_phase_count` | gapに含まれる総時期数 |
+| `max_gap_length` | 最大gap長 |
+| `observed_span_phase_count` | 初出から終出までの時期幅 |
+| `continuity_index` | presence・run・gapを統合した継続性指標 |
+| `intermittency_index` | 断続性指標 |
+
+前後端の0はgapに含めない。
+
+### 5.2 Transition
+
+| transition | 定義 | 解釈 |
+|---|---|---|
+| `continue` | 1→1 | 記録上の継続 |
+| `drop` | 1→0 | 記録上の消失 |
+| `new` | 0→1 | 記録上の出現・再出現 |
+| `apparent_absence_continue` | 0→0 | 記録上の不在継続 |
+
+active transitionの分母は、
+
+`continue + drop + new`
+
+であり、0→0を含めない。
+
+---
+
+## 6. activity domain
+
+### 6.1 分類
+
+| domain | 概要 |
+|---|---|
+| `all_land_use` | 対象7時期の全土地利用 |
+| `general_activity` | 集落・居住・一般的活動を中心とする土地利用 |
+| `monument` | 古墳・横穴墓・一部の墳墓・塚等 |
+| `institutional` | 官衙・社寺・城館等 |
+| `production` | 窯・鍛冶・製鉄・工房等 |
+
+墓・墓地は自動的にすべて`monument`とはしない。
+
+### 6.2 多ラベル
+
+activity domainは排他的分類ではない。
+
+同一地点・同一時期に、例えば、
+
+- `general_activity = 1`
+- `monument = 1`
+
+が同時に成立する場合がある。
+
+したがってdomain別件数の合計はall_land_use件数と一致する必要はない。
+
+### 6.3 時期未確定
+
+`temporally_unresolved`は0として扱わない。
+
+- phase presence率：その時期の分母から除外
+- transition / Markov：前後どちらかがNAならpairの分母から除外
+- Run / Gap / continuity：7期のいずれかがNAのplace×domain系列は系列全体を除外
+
+---
+
+## 7. 探索的に保持する手法
+
+| 手法 | 現在の位置づけ | 理由 |
+|---|---|---|
+| sequence clustering | 探索的 | cluster imbalanceが大きく、sequence classより解釈性が低い |
+| change-point | 探索的 | 7大区分しかなく、単一break screeningである |
+| fixed-distance spatial weights | 感度分析 | kNNの頑健性確認用 |
+| coordinate aggregation | 感度分析 | 同一座標レコードを統合した場合の影響確認 |
+| Local G* for rare event | 比較・図示 | rare eventのprimary local testはJoin Count |
+| municipality-based comparison | 補助診断 | 主要空間単位は自然地理単位とする |
+
+---
+
+## 8. 検討後に主要分析から外した方法・考え方
+
+| 方法・指標 | 判断 | 根拠 |
+|---|---|---|
+| 特殊SiteTypeの一律除外 | activity domainへ置換 | 時期との対応を自動確定できず、時代固有の土地利用構造も失うため |
+| SiteTypeを全観測時期へ展開 | 不採用 | SiteTypeとChronologyは独立情報であり、時期別用途を誤推定するため |
+| activity-domainの時期不確定を0化 | 不採用 | false drop/newと人工的gapを生成するため |
+| Transition Local analysisを全地点で計算 | 不採用 | 0→0がcoldspot等を支配し得るため |
+| 単一kのみで近隣を固定 | 不採用 | 局所統計が近隣スケールに依存するため |
+| 絶対年代幅によるtime weighting | 不採用 | 時期区分の時間幅とデータ時間解像度が均質でないため |
+| Local G*のみでrare event clusterを確定 | 不採用 | binary rare eventではJoin Countの方が直接的なため |
+| sequence clusteringを主要類型とする | 不採用 | 主要clusterへの過度な集中があり、考古学的解釈性が低いため |
+
+---
+
+## 9. 未実装・将来検討
+
+以下は本分析で検討対象となったが、現段階では実装しない。
+
+| 手法 | 想定用途 | 現状 |
+|---|---|---|
+| Hidden Markov Model | 未調査・未検出を潜在状態と観測状態に分離 | 未実装 |
+| Survival analysis | 活動の継続・終了を存続時間として扱う | 未実装 |
+| Dynamic Time Warping | 時期ずれを許容した系列類似度 | 未実装 |
+| Bayesian chronological model | 年代比定・時期境界の不確実性 | 未実装 |
+| Spatio-temporal autocorrelation | 空間＋時間の自己相関 | 未実装 |
+| Time-sliced kernel density | 時期別密度面の比較 | 未実装 |
+| Space-time cube | 時空間3次元可視化 | 未実装 |
+| 10m grid集計 | 分布面・区域分析 | 未実装 |
+| 調査区・遺跡範囲ポリゴン集計 | 面単位の評価 | 未実装 |
+
+これらは「分析上不要」と判断したものではなく、現在の7時期ポイントデータで回答する研究課題に対して、現行手法より優先度が低いものとして保留している。
+
+---
+
+## 10. 解釈上の原則
+
+1. `apparent_absence`を実在のabsenceと断定しない。
+2. `drop`を廃絶、`new`を成立と機械的に読み替えない。
+3. Global Moranは「地域差の存在」、Local statisticsは「その地域差が現れる位置」として区別する。
+4. Local MoranのHH/LLを、直ちに文化圏・行動圏とみなさない。
+5. Local G*のhot/coldを固定的な考古学的領域とみなさない。
+6. rare eventではLocal Join Countをprimaryとする。
+7. k=4/8/12の結果が大きく異なる場合、単一の境界線として解釈しない。
+8. 自然地理別上位・下位25%は記述的な「明瞭な差」であり、有意差ではない。
+9. activity-domainは遺跡の本質的・排他的分類ではなく、時系列変化を分解する分析上の観測カテゴリである。
+10. 統計結果はQGIS上で地形、水系、個別遺跡、調査状況と再照合して考古学的に解釈する。
+
+---
+
+## 11. 統合レポートで記述する方法論の流れ
+
+統合レポートでは、最終手法だけを列挙するのではなく、次の順序で分析過程を説明する。
+
+1. **問題設定**  
+   遺跡地点の長期的な出現・継続・中断をどのように0/1時系列から記述するか。
+
+2. **基本指標の構築**  
+   Run / Gap / continuity index / sequence class。
+
+3. **時代画期の定量化**  
+   presence、active transition、Markov、change-point。
+
+4. **方法検証**  
+   continuity weight、sequence clustering、Transition denominator、空間近隣の感度。
+
+5. **空間分析手法の選択**  
+   Global Moran、Local Moran、Local G*、Local Join Countの役割分担。
+
+6. **自然地理との対応**  
+   水系・単位流域・地形による地域差。
+
+7. **SiteType問題とactivity-domain導入**  
+   特殊SiteType除外案から多ラベル・時期未確定保持へ至った判断。
+
+8. **全画期空間スクリーニング**  
+   all_land_use Local G*による6画期比較。
+
+9. **重点4画期の用途別空間分析**  
+   Ya→Ko、Ko→Na、Na→He、He→Me。
+
+10. **総合解釈と限界**  
+    長期動態、機能転換、空間スケール、記録上のabsenceの限界。
+
+---
+
+## 12. 出力
+
+現行Rmdは、少なくとも以下を出力する。
+
+### CSV
+
+- 地点×時期presence
+- Run / Gap
+- continuity summary
+- sequence class / clustering
+- active transition
+- Markov
+- change-point
+- 自然地理単位別集計
+- activity-domain別presence / transition / Markov
+- Global Moran / Local Moran
+- all_land_use Local G*
+- activity-domain Local G* / Join Count
+- kNN / fixed-distance diagnostics
+- 出力監査
+
+### Figure
+
+- 時期別presence
+- sequence class
+- continuity index
+- active transition
+- Markov
+- change-point
+- run/gap timeline
+- Local Moran
+- 全6画期Local G*
+- activity-domain Local G*
+- kNN sensitivity
+
+### GeoPackage
+
+QGIS上で、
+
+- 長期継続性
+- 時期別presence
+- transition
+- activity-domain
+- Local Moran
+- Local G*
+- kNN edges
+
+を個別地点へ戻って検証可能な形で保存する。
+
+---
+
+## 13. 現行の分析上の位置づけ
+
+本分析の目的は、0/1時系列から単一の「継続性値」を作ることだけではない。
+
+最終的には、
+
+**長期的な利用履歴  
+→ 時代画期ごとの変化  
+→ その空間的な偏り  
+→ 自然地理との対応  
+→ activity-domainによる機能的分解**
+
+という複数段階を組み合わせ、遺跡分布の長期動態を考古学的に解釈可能な形へ整理することを目的とする。
+
+そのため、途中で検討して採用しなかった手法や、探索的に残した指標も、方法論上の判断過程を示す情報として記録する。

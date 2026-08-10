@@ -1,0 +1,1566 @@
+---
+title: "Tokyo activity-domain preprocessing v1.3"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+# 01. setup-and-input
+
+**目的**：東京都データ固有の `SiteType` と `ArchaeologicalFeatures` を、共通分析Rmdが利用できる標準化activity domainへ変換する。
+
+この前処理では、`SiteType` を各時期へ機械的に掛け合わせない。時期を一意に決められない特殊活動は `temporally_ambiguous` として監査表に残し、phase-specific flagを立てない。
+
+また `墓地`・`その他の墓`・`墓` は自動的に `monument` へ分類しない。
+
+```{r p01_setup_and_input, eval=TRUE, message=FALSE, warning=FALSE}
+required_packages <- c(
+  "readr",
+  "dplyr",
+  "tidyr",
+  "tibble",
+  "stringr",
+  "purrr"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "不足しているRパッケージがあります: ",
+    paste(missing_packages, collapse = ", ")
+  )
+}
+
+invisible(
+  lapply(
+    required_packages,
+    library,
+    character.only = TRUE
+  )
+)
+
+INPUT_CSV <- "13Tokyo_chronology_gsi_landform.csv"
+OUTPUT_CSV <- "13Tokyo_chronology_gsi_landform_activity.csv"
+
+SITETYPE_DICTIONARY_CSV <- "Tokyo_activity_sitetype_dictionary.csv"
+FEATURE_DICTIONARY_CSV <- "Tokyo_activity_feature_dictionary.csv"
+TEMPORAL_RULES_CSV <- "Tokyo_activity_temporal_rules.csv"
+
+OUTPUT_DIR <- "activity_preprocessing"
+dir.create(
+  OUTPUT_DIR,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+phase_cols <- c(
+  "Pa",
+  "Jo",
+  "Ya",
+  "Ko",
+  "Na",
+  "He",
+  "Me"
+)
+
+activity_domains <- c(
+  "general_activity",
+  "monument",
+  "institutional",
+  "production"
+)
+
+required_files <- c(
+  INPUT_CSV,
+  SITETYPE_DICTIONARY_CSV,
+  FEATURE_DICTIONARY_CSV,
+  TEMPORAL_RULES_CSV
+)
+
+if (any(!file.exists(required_files))) {
+  stop(
+    "必要ファイルがありません: ",
+    paste(
+      required_files[!file.exists(required_files)],
+      collapse = ", "
+    )
+  )
+}
+
+raw <- readr::read_csv(
+  INPUT_CSV,
+  col_types = readr::cols(
+    .default = readr::col_character()
+  ),
+  show_col_types = FALSE
+)
+
+required_cols <- c(
+  "JASID",
+  "SiteType",
+  "ArchaeologicalFeatures",
+  phase_cols
+)
+
+missing_cols <- setdiff(
+  required_cols,
+  names(raw)
+)
+
+if (length(missing_cols) > 0) {
+  stop(
+    "入力CSVに必要な列がありません: ",
+    paste(missing_cols, collapse = ", ")
+  )
+}
+
+sitetype_dictionary <- readr::read_csv(
+  SITETYPE_DICTIONARY_CSV,
+  show_col_types = FALSE
+) |>
+  dplyr::filter(
+    toupper(as.character(active)) == "TRUE"
+  )
+
+feature_dictionary <- readr::read_csv(
+  FEATURE_DICTIONARY_CSV,
+  show_col_types = FALSE
+) |>
+  dplyr::filter(
+    toupper(as.character(active)) == "TRUE"
+  )
+
+temporal_rules <- readr::read_csv(
+  TEMPORAL_RULES_CSV,
+  show_col_types = FALSE
+)
+
+cat("input rows:", nrow(raw), "\n")
+cat("SiteType dictionary rows:", nrow(sitetype_dictionary), "\n")
+cat("feature dictionary rows:", nrow(feature_dictionary), "\n")
+```
+
+# 02. normalize-and-tokenize-sitetype
+
+**目的**：表記揺れを最小限だけ正規化してから、`SiteType` を独立tokenに分解する。部分一致は行わず、辞書とは正規化後の完全一致で照合する。
+
+```{r p02_normalize_and_tokenize_sitetype, eval=TRUE}
+normalize_activity_token <- function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+
+  x <- stringr::str_replace_all(
+    x,
+    "？",
+    "?"
+  )
+
+  x <- stringr::str_replace_all(
+    x,
+    "（",
+    "("
+  )
+
+  x <- stringr::str_replace_all(
+    x,
+    "）",
+    ")"
+  )
+
+  x <- stringr::str_replace_all(
+    x,
+    "[[:cntrl:]]",
+    ""
+  )
+
+  x <- stringr::str_replace_all(
+    x,
+    "　",
+    " "
+  )
+
+  x <- stringr::str_squish(x)
+
+  # 語尾の疑問符だけを除去する。
+  # 「古墳?」→「古墳」。語中の曖昧表現は残す。
+  x <- stringr::str_replace(
+    x,
+    "\\?+$",
+    ""
+  )
+
+  x
+}
+
+split_outside_parentheses <- function(x) {
+  # 重要:
+  # 全角括弧を半角括弧へ正規化してからdepthを判定する。
+  # v1.1では正規化がflush時だけだったため、
+  # 「その他（町屋・道路跡）」の括弧内区切りが誤分割され得た。
+  x <- normalize_activity_token(
+    x
+  )
+
+  if (!nzchar(x)) {
+    return(
+      character(0)
+    )
+  }
+
+  chars <- strsplit(
+    x,
+    "",
+    fixed = TRUE
+  )[[1]]
+
+  tokens <- character(0)
+  current <- character(0)
+  depth <- 0L
+
+  flush_current <- function(
+    current_value,
+    token_vector
+  ) {
+    token <- paste0(
+      current_value,
+      collapse = ""
+    )
+
+    token <- normalize_activity_token(
+      token
+    )
+
+    if (nzchar(token)) {
+      token_vector <- c(
+        token_vector,
+        token
+      )
+    }
+
+    token_vector
+  }
+
+  separators <- c(
+    "・",
+    "･",
+    ",",
+    "、",
+    ";",
+    "/",
+    "／",
+    "|",
+    "\t",
+    "\r",
+    "\n",
+    " ",
+    "　"
+  )
+
+  for (ch in chars) {
+    if (ch == "(") {
+      depth <- depth + 1L
+      current <- c(
+        current,
+        ch
+      )
+      next
+    }
+
+    if (ch == ")") {
+      depth <- max(
+        0L,
+        depth - 1L
+      )
+      current <- c(
+        current,
+        ch
+      )
+      next
+    }
+
+    if (
+      depth == 0L &&
+        ch %in% separators
+    ) {
+      tokens <- flush_current(
+        current,
+        tokens
+      )
+
+      current <- character(0)
+      next
+    }
+
+    current <- c(
+      current,
+      ch
+    )
+  }
+
+  tokens <- flush_current(
+    current,
+    tokens
+  )
+
+  unique(
+    tokens[
+      nzchar(tokens)
+    ]
+  )
+}
+
+split_sitetype_tokens <- function(x) {
+  split_outside_parentheses(
+    x
+  )
+}
+
+sitetype_token_long <- purrr::map_dfr(
+  seq_len(nrow(raw)),
+  function(i) {
+    tokens <- split_sitetype_tokens(
+      raw$SiteType[i]
+    )
+
+    if (length(tokens) == 0) {
+      return(
+        tibble::tibble(
+          row_id = i,
+          place_id = raw$JASID[i],
+          source_value = raw$SiteType[i],
+          normalized_token = NA_character_
+        )
+      )
+    }
+
+    tibble::tibble(
+      row_id = i,
+      place_id = raw$JASID[i],
+      source_value = raw$SiteType[i],
+      normalized_token = tokens
+    )
+  }
+)
+
+sitetype_token_classified <- sitetype_token_long |>
+  dplyr::left_join(
+    sitetype_dictionary,
+    by = "normalized_token"
+  ) |>
+  dplyr::mutate(
+    dictionary_match = !is.na(
+      evidence_role
+    )
+  )
+
+unclassified_sitetype_tokens <- sitetype_token_classified |>
+  dplyr::filter(
+    !is.na(
+      normalized_token
+    ),
+    !dictionary_match
+  ) |>
+  dplyr::count(
+    normalized_token,
+    sort = TRUE,
+    name = "n_records"
+  )
+
+unclassified_parenthesis_check <- unclassified_sitetype_tokens |>
+  dplyr::mutate(
+    n_open_parenthesis = stringr::str_count(
+      normalized_token,
+      stringr::fixed("(")
+    ),
+    n_close_parenthesis = stringr::str_count(
+      normalized_token,
+      stringr::fixed(")")
+    ),
+    balanced_parentheses =
+      n_open_parenthesis ==
+      n_close_parenthesis
+  )
+
+readr::write_csv(
+  unclassified_sitetype_tokens,
+  file.path(
+    OUTPUT_DIR,
+    "activity_unclassified_sitetype_tokens.csv"
+  )
+)
+
+readr::write_csv(
+  unclassified_parenthesis_check,
+  file.path(
+    OUTPUT_DIR,
+    "activity_unclassified_parenthesis_check.csv"
+  )
+)
+
+print(
+  utils::head(
+    unclassified_sitetype_tokens,
+    50
+  )
+)
+
+cat(
+  "unclassified tokens with unbalanced parentheses:",
+  sum(
+    !unclassified_parenthesis_check$balanced_parentheses
+  ),
+  "\n"
+)
+```
+
+# 03. build-observed-phase-table
+
+**目的**：各レコードについて、元CSVで実際にpresenceとなっている7期を確定する。
+
+```{r p03_build_observed_phase_table, eval=TRUE}
+phase_numeric <- raw |>
+  dplyr::transmute(
+    row_id = dplyr::row_number(),
+    place_id = JASID,
+    dplyr::across(
+      dplyr::all_of(phase_cols),
+      ~ tidyr::replace_na(
+        suppressWarnings(
+          readr::parse_number(
+            as.character(.x)
+          )
+        ),
+        0
+      )
+    )
+  )
+
+observed_phase_long <- phase_numeric |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(phase_cols),
+    names_to = "phase_code",
+    values_to = "phase_value"
+  ) |>
+  dplyr::mutate(
+    phase_presence = as.integer(
+      phase_value > 0
+    )
+  )
+
+observed_phase_by_row <- observed_phase_long |>
+  dplyr::filter(
+    phase_presence == 1L
+  ) |>
+  dplyr::group_by(
+    row_id,
+    place_id
+  ) |>
+  dplyr::summarise(
+    observed_phases = list(
+      phase_code
+    ),
+    n_observed_phases = dplyr::n(),
+    .groups = "drop"
+  )
+```
+
+# 04. sitetype-temporal-assignment
+
+**目的**：`SiteType` のdomain候補を、観測された時期と辞書上の許容時期の共通部分で評価する。共通部分が1期だけなら自動付与し、複数なら曖昧として残す。
+
+```{r p04_sitetype_temporal_assignment, eval=TRUE}
+split_allowed_phases <- function(x) {
+  x <- as.character(x)
+
+  if (
+    is.na(x) ||
+      !nzchar(x)
+  ) {
+    return(
+      character(0)
+    )
+  }
+
+  trimws(
+    unlist(
+      strsplit(
+        x,
+        ";",
+        fixed = TRUE
+      )
+    )
+  )
+}
+
+sitetype_assignment <- sitetype_token_classified |>
+  dplyr::filter(
+    dictionary_match,
+    evidence_role != "neutral",
+    !is.na(activity_domain),
+    nzchar(activity_domain)
+  ) |>
+  dplyr::left_join(
+    observed_phase_by_row,
+    by = c(
+      "row_id",
+      "place_id"
+    )
+  )
+
+sitetype_assignment <- purrr::pmap_dfr(
+  sitetype_assignment,
+  function(
+    row_id,
+    place_id,
+    source_value,
+    normalized_token,
+    activity_domain,
+    evidence_role,
+    allowed_phases,
+    active,
+    note,
+    dictionary_match,
+    observed_phases,
+    n_observed_phases
+  ) {
+    observed <- if (
+      is.null(observed_phases)
+    ) {
+      character(0)
+    } else {
+      as.character(observed_phases)
+    }
+
+    allowed <- split_allowed_phases(
+      allowed_phases
+    )
+
+    compatible <- intersect(
+      observed,
+      allowed
+    )
+
+    if (length(compatible) == 1) {
+      return(
+        tibble::tibble(
+          row_id,
+          place_id,
+          activity_domain,
+          phase_code = compatible,
+          assignment_status = "present",
+          evidence_source = "SiteType_unique_compatible_phase",
+          evidence_value = normalized_token,
+          compatible_phases = paste(
+            compatible,
+            collapse = ";"
+          )
+        )
+      )
+    }
+
+    if (length(compatible) == 0) {
+      return(
+        tibble::tibble(
+          row_id,
+          place_id,
+          activity_domain,
+          phase_code = NA_character_,
+          assignment_status = "incompatible",
+          evidence_source = "SiteType",
+          evidence_value = normalized_token,
+          compatible_phases = ""
+        )
+      )
+    }
+
+    tibble::tibble(
+      row_id,
+      place_id,
+      activity_domain,
+      phase_code = NA_character_,
+      assignment_status = "temporally_ambiguous",
+      evidence_source = "SiteType",
+      evidence_value = normalized_token,
+      compatible_phases = paste(
+        compatible,
+        collapse = ";"
+      )
+    )
+  }
+)
+```
+
+# 05. archaeological-features-assignment
+
+**目的**：`ArchaeologicalFeatures` に明記された時期タグを利用し、時期と機能が同じ記述内にある場合は直接証拠として優先する。時期タグがない場合は、そのレコードの観測時期が1期だけのときに限って利用する。
+
+```{r p05_archaeological_features_assignment, eval=TRUE}
+phase_regex_lookup <- stats::setNames(
+  temporal_rules$source_phase_regex,
+  temporal_rules$phase_code
+)
+
+extract_tagged_segments <- function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+
+  m <- gregexpr(
+    "\\[[^\\]]+\\][^\\[]*",
+    x,
+    perl = TRUE
+  )[[1]]
+
+  if (
+    length(m) == 1 &&
+      m[1] == -1
+  ) {
+    return(
+      character(0)
+    )
+  }
+
+  regmatches(
+    x,
+    list(m)
+  )[[1]]
+}
+
+extract_leading_phase_tag <- function(x) {
+  m <- stringr::str_match(
+    as.character(x),
+    "^\\[([^\\]]+)\\]"
+  )
+
+  as.character(
+    m[, 2]
+  )
+}
+
+strip_leading_phase_tag <- function(x) {
+  stringr::str_replace(
+    as.character(x),
+    "^\\[[^\\]]+\\]\\s*",
+    ""
+  )
+}
+
+feature_assignment_rows <- list()
+feature_idx <- 1L
+
+for (i in seq_len(nrow(raw))) {
+  features <- as.character(
+    raw$ArchaeologicalFeatures[i]
+  )
+
+  if (
+    is.na(features) ||
+      !nzchar(
+        trimws(features)
+      )
+  ) {
+    next
+  }
+
+  observed <- observed_phase_long |>
+    dplyr::filter(
+      row_id == i,
+      phase_presence == 1L
+    ) |>
+    dplyr::pull(
+      phase_code
+    )
+
+  segments <- extract_tagged_segments(
+    features
+  )
+
+  if (length(segments) > 0) {
+    for (segment in segments) {
+      phase_tag <- extract_leading_phase_tag(
+        segment
+      )
+
+      if (
+        is.na(phase_tag) ||
+          !nzchar(phase_tag)
+      ) {
+        next
+      }
+
+      # 時期判定は [] 内のtag textだけで行う。
+      # feature本文中の「古墳」「縄文」等を時期タグとして誤認しない。
+      phase_hits <- names(
+        phase_regex_lookup
+      )[
+        vapply(
+          phase_regex_lookup,
+          function(pattern) {
+            grepl(
+              pattern,
+              phase_tag,
+              perl = TRUE
+            )
+          },
+          logical(1)
+        )
+      ]
+
+      phase_hits <- intersect(
+        phase_hits,
+        observed
+      )
+
+      # activity keyword判定には時期タグを含めない。
+      # 例: "[古墳時代]住居" の「古墳」をmonument keywordとしない。
+      feature_body <- strip_leading_phase_tag(
+        segment
+      )
+
+      for (j in seq_len(nrow(feature_dictionary))) {
+        if (
+          !grepl(
+            feature_dictionary$keyword_regex[j],
+            feature_body,
+            perl = TRUE
+          )
+        ) {
+          next
+        }
+
+        allowed <- split_allowed_phases(
+          feature_dictionary$allowed_phases[j]
+        )
+
+        compatible <- intersect(
+          phase_hits,
+          allowed
+        )
+
+        if (length(compatible) == 1) {
+          feature_assignment_rows[[feature_idx]] <- tibble::tibble(
+            row_id = i,
+            place_id = raw$JASID[i],
+            activity_domain = feature_dictionary$activity_domain[j],
+            phase_code = compatible[[1]],
+            assignment_status = "present",
+            evidence_source = "ArchaeologicalFeatures_tagged",
+            evidence_value = segment,
+            evidence_body = feature_body,
+            compatible_phases = compatible[[1]]
+          )
+
+          feature_idx <- feature_idx + 1L
+          next
+        }
+
+        if (length(compatible) > 1) {
+          feature_assignment_rows[[feature_idx]] <- tibble::tibble(
+            row_id = i,
+            place_id = raw$JASID[i],
+            activity_domain = feature_dictionary$activity_domain[j],
+            phase_code = NA_character_,
+            assignment_status = "temporally_ambiguous",
+            evidence_source = "ArchaeologicalFeatures_tagged",
+            evidence_value = segment,
+            evidence_body = feature_body,
+            compatible_phases = paste(
+              compatible,
+              collapse = ";"
+            )
+          )
+
+          feature_idx <- feature_idx + 1L
+        }
+      }
+    }
+  }
+
+  # 時期タグが無い記述は、観測期が1期だけの場合のみ使う。
+  if (
+    length(segments) == 0 &&
+      length(observed) == 1
+  ) {
+    phase_code_value <- observed[[1]]
+
+    for (j in seq_len(nrow(feature_dictionary))) {
+      allowed <- split_allowed_phases(
+        feature_dictionary$allowed_phases[j]
+      )
+
+      if (
+        phase_code_value %in% allowed &&
+          grepl(
+            feature_dictionary$keyword_regex[j],
+            features,
+            perl = TRUE
+          )
+      ) {
+        feature_assignment_rows[[feature_idx]] <- tibble::tibble(
+          row_id = i,
+          place_id = raw$JASID[i],
+          activity_domain = feature_dictionary$activity_domain[j],
+          phase_code = phase_code_value,
+          assignment_status = "present",
+          evidence_source = "ArchaeologicalFeatures_single_observed_phase",
+          evidence_value = features,
+          evidence_body = features,
+          compatible_phases = phase_code_value
+        )
+
+        feature_idx <- feature_idx + 1L
+      }
+    }
+  }
+}
+
+feature_assignment <- dplyr::bind_rows(
+  feature_assignment_rows
+)
+
+if (nrow(feature_assignment) == 0) {
+  feature_assignment <- tibble::tibble(
+    row_id = integer(0),
+    place_id = character(0),
+    activity_domain = character(0),
+    phase_code = character(0),
+    assignment_status = character(0),
+    evidence_source = character(0),
+    evidence_value = character(0),
+    evidence_body = character(0),
+    compatible_phases = character(0)
+  )
+}
+```
+
+# 06. build-phase-domain-status
+
+**目的**：SiteTypeと遺構記述を統合し、`place × phase × activity_domain` の標準化状態を作る。
+
+`general_activity` は全土地利用から開始し、その時期が特定の特殊活動だけに明確に帰属し、同時期の一般活動の直接証拠がない場合にのみ除外する。このため、特殊活動の分離は保守的である。
+
+```{r p06_build_phase_domain_status, eval=TRUE}
+sitetype_assignment <- sitetype_assignment |>
+  dplyr::mutate(
+    evidence_body = NA_character_
+  )
+
+assignment_audit <- dplyr::bind_rows(
+  sitetype_assignment,
+  feature_assignment
+) |>
+  dplyr::arrange(
+    row_id,
+    activity_domain,
+    phase_code,
+    assignment_status
+  )
+
+present_evidence <- assignment_audit |>
+  dplyr::filter(
+    assignment_status == "present",
+    !is.na(phase_code)
+  ) |>
+  dplyr::distinct(
+    row_id,
+    place_id,
+    activity_domain,
+    phase_code
+  )
+
+ambiguous_evidence <- assignment_audit |>
+  dplyr::filter(
+    assignment_status == "temporally_ambiguous"
+  ) |>
+  dplyr::select(
+    row_id,
+    place_id,
+    activity_domain,
+    compatible_phases
+  ) |>
+  tidyr::separate_rows(
+    compatible_phases,
+    sep = ";"
+  ) |>
+  dplyr::rename(
+    phase_code = compatible_phases
+  ) |>
+  dplyr::filter(
+    nzchar(phase_code)
+  ) |>
+  dplyr::distinct()
+
+phase_domain_grid <- tidyr::crossing(
+  row_id = seq_len(nrow(raw)),
+  phase_code = phase_cols,
+  activity_domain = activity_domains
+) |>
+  dplyr::left_join(
+    raw |>
+      dplyr::transmute(
+        row_id = dplyr::row_number(),
+        place_id = JASID
+      ),
+    by = "row_id"
+  ) |>
+  dplyr::left_join(
+    observed_phase_long |>
+      dplyr::select(
+        row_id,
+        phase_code,
+        phase_presence
+      ),
+    by = c(
+      "row_id",
+      "phase_code"
+    )
+  ) |>
+  dplyr::left_join(
+    present_evidence |>
+      dplyr::mutate(
+        direct_present = TRUE
+      ),
+    by = c(
+      "row_id",
+      "place_id",
+      "activity_domain",
+      "phase_code"
+    )
+  ) |>
+  dplyr::left_join(
+    ambiguous_evidence |>
+      dplyr::mutate(
+        ambiguous_candidate = TRUE
+      ),
+    by = c(
+      "row_id",
+      "place_id",
+      "activity_domain",
+      "phase_code"
+    )
+  ) |>
+  dplyr::mutate(
+    direct_present = tidyr::replace_na(
+      direct_present,
+      FALSE
+    ),
+    ambiguous_candidate = tidyr::replace_na(
+      ambiguous_candidate,
+      FALSE
+    )
+  )
+
+specialized_present <- present_evidence |>
+  dplyr::filter(
+    activity_domain %in% c(
+      "monument",
+      "institutional",
+      "production"
+    )
+  ) |>
+  dplyr::count(
+    row_id,
+    place_id,
+    phase_code,
+    name = "n_specialized_domains_present"
+  )
+
+# v1.3:
+# 特殊活動の時期帰属が未確定の場合、その不確定性をgeneral_activityにも伝播する。
+specialized_ambiguous <- ambiguous_evidence |>
+  dplyr::filter(
+    activity_domain %in% c(
+      "monument",
+      "institutional",
+      "production"
+    )
+  ) |>
+  dplyr::count(
+    row_id,
+    place_id,
+    phase_code,
+    name = "n_specialized_domains_ambiguous"
+  )
+
+explicit_general_present <- present_evidence |>
+  dplyr::filter(
+    activity_domain == "general_activity"
+  ) |>
+  dplyr::transmute(
+    row_id,
+    place_id,
+    phase_code,
+    explicit_general_present = TRUE
+  )
+
+phase_domain_status <- phase_domain_grid |>
+  dplyr::left_join(
+    specialized_present,
+    by = c(
+      "row_id",
+      "place_id",
+      "phase_code"
+    )
+  ) |>
+  dplyr::left_join(
+    specialized_ambiguous,
+    by = c(
+      "row_id",
+      "place_id",
+      "phase_code"
+    )
+  ) |>
+  dplyr::left_join(
+    explicit_general_present,
+    by = c(
+      "row_id",
+      "place_id",
+      "phase_code"
+    )
+  ) |>
+  dplyr::mutate(
+    n_specialized_domains_present = tidyr::replace_na(
+      n_specialized_domains_present,
+      0L
+    ),
+    n_specialized_domains_ambiguous = tidyr::replace_na(
+      n_specialized_domains_ambiguous,
+      0L
+    ),
+    explicit_general_present = tidyr::replace_na(
+      explicit_general_present,
+      FALSE
+    ),
+
+    # domain_presence:
+    #   1  = domain present
+    #   0  = resolved non-presence / non-assignment
+    #   NA = temporal assignment unresolved
+    #
+    # general_activity は「非特殊用途を中心とする残余カテゴリ」。
+    # 明示的general証拠があれば1。
+    # 特殊用途が確定している場合は、general候補が曖昧ならNA、
+    # general候補がなければ0。
+    # 特殊用途そのものの時期帰属が曖昧ならgeneralもNA。
+    domain_presence = dplyr::case_when(
+      phase_presence == 0L ~
+        0L,
+
+      activity_domain == "general_activity" &
+        explicit_general_present ~
+        1L,
+
+      activity_domain == "general_activity" &
+        n_specialized_domains_present > 0 &
+        ambiguous_candidate ~
+        NA_integer_,
+
+      activity_domain == "general_activity" &
+        n_specialized_domains_present > 0 ~
+        0L,
+
+      activity_domain == "general_activity" &
+        n_specialized_domains_ambiguous > 0 ~
+        NA_integer_,
+
+      activity_domain == "general_activity" ~
+        1L,
+
+      direct_present ~
+        1L,
+
+      ambiguous_candidate ~
+        NA_integer_,
+
+      TRUE ~
+        0L
+    ),
+
+    domain_status = dplyr::case_when(
+      phase_presence == 0L ~
+        "apparent_absence",
+
+      activity_domain == "general_activity" &
+        explicit_general_present ~
+        "present_general_explicit",
+
+      activity_domain == "general_activity" &
+        n_specialized_domains_present > 0 &
+        ambiguous_candidate ~
+        "temporally_ambiguous_general_candidate",
+
+      activity_domain == "general_activity" &
+        n_specialized_domains_present > 0 ~
+        "excluded_specialized_only",
+
+      activity_domain == "general_activity" &
+        n_specialized_domains_ambiguous > 0 ~
+        "temporally_ambiguous_due_to_specialized",
+
+      activity_domain == "general_activity" ~
+        "present_general_default",
+
+      direct_present ~
+        "present",
+
+      ambiguous_candidate ~
+        "temporally_ambiguous",
+
+      TRUE ~
+        "no_positive_domain_evidence"
+    ),
+
+    domain_resolution = dplyr::if_else(
+      is.na(domain_presence),
+      "temporally_unresolved",
+      "resolved"
+    )
+  ) |>
+  dplyr::select(
+    row_id,
+    place_id,
+    phase_code,
+    activity_domain,
+    phase_presence,
+    domain_presence,
+    domain_status,
+    domain_resolution,
+    n_specialized_domains_present,
+    n_specialized_domains_ambiguous,
+    explicit_general_present,
+    direct_present,
+    ambiguous_candidate
+  )
+
+readr::write_csv(
+  assignment_audit,
+  file.path(
+    OUTPUT_DIR,
+    "activity_preprocessing_audit.csv"
+  )
+)
+
+readr::write_csv(
+  phase_domain_status,
+  file.path(
+    OUTPUT_DIR,
+    "activity_phase_status.csv"
+  )
+)
+```
+
+# 07. append-flags-and-save
+
+**目的**：共通分析Rmdが直接利用できるplace-level flagとphase-specific flagを元CSVへ追加する。
+
+```{r p07_append_flags_and_save, eval=TRUE}
+phase_flag_wide <- phase_domain_status |>
+  dplyr::select(
+    row_id,
+    activity_domain,
+    phase_code,
+    domain_presence
+  ) |>
+  dplyr::mutate(
+    output_col = paste0(
+      "activity_",
+      activity_domain,
+      "_",
+      phase_code
+    )
+  ) |>
+  dplyr::select(
+    row_id,
+    output_col,
+    domain_presence
+  ) |>
+  tidyr::pivot_wider(
+    names_from = output_col,
+    values_from = domain_presence
+  )
+
+phase_status_wide <- phase_domain_status |>
+  dplyr::select(
+    row_id,
+    activity_domain,
+    phase_code,
+    domain_status
+  ) |>
+  dplyr::mutate(
+    output_col = paste0(
+      "activity_",
+      activity_domain,
+      "_",
+      phase_code,
+      "_status"
+    )
+  ) |>
+  dplyr::select(
+    row_id,
+    output_col,
+    domain_status
+  ) |>
+  tidyr::pivot_wider(
+    names_from = output_col,
+    values_from = domain_status
+  )
+
+place_flag_wide <- phase_domain_status |>
+  dplyr::group_by(
+    row_id,
+    activity_domain
+  ) |>
+  dplyr::summarise(
+    n_present_phase = sum(
+      domain_presence == 1L,
+      na.rm = TRUE
+    ),
+    n_unresolved_phase = sum(
+      is.na(domain_presence)
+    ),
+    domain_any = dplyr::case_when(
+      n_present_phase > 0 ~
+        1L,
+      n_unresolved_phase > 0 ~
+        NA_integer_,
+      TRUE ~
+        0L
+    ),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(
+    output_col = paste0(
+      "activity_",
+      activity_domain
+    )
+  ) |>
+  dplyr::select(
+    row_id,
+    output_col,
+    domain_any
+  ) |>
+  tidyr::pivot_wider(
+    names_from = output_col,
+    values_from = domain_any
+  )
+
+activity_output <- raw |>
+  dplyr::mutate(
+    row_id = dplyr::row_number()
+  ) |>
+  dplyr::left_join(
+    place_flag_wide,
+    by = "row_id"
+  ) |>
+  dplyr::left_join(
+    phase_flag_wide,
+    by = "row_id"
+  ) |>
+  dplyr::left_join(
+    phase_status_wide,
+    by = "row_id"
+  ) |>
+  dplyr::select(
+    -row_id
+  )
+
+readr::write_csv(
+  activity_output,
+  OUTPUT_CSV,
+  na = ""
+)
+
+activity_preprocessing_summary <- phase_domain_status |>
+  dplyr::count(
+    activity_domain,
+    phase_code,
+    domain_status,
+    domain_resolution,
+    name = "n_records"
+  ) |>
+  dplyr::arrange(
+    activity_domain,
+    phase_code,
+    dplyr::desc(n_records)
+  )
+
+activity_place_summary <- phase_domain_status |>
+  dplyr::group_by(
+    activity_domain
+  ) |>
+  dplyr::summarise(
+    n_places_with_domain = dplyr::n_distinct(
+      place_id[
+        domain_presence == 1L &
+          !is.na(domain_presence)
+      ]
+    ),
+    n_phase_presence_assignments = sum(
+      domain_presence == 1L,
+      na.rm = TRUE
+    ),
+    n_temporally_unresolved_phase_status = sum(
+      is.na(domain_presence)
+    ),
+    n_places_with_temporal_unresolved = dplyr::n_distinct(
+      place_id[
+        is.na(domain_presence)
+      ]
+    ),
+    .groups = "drop"
+  )
+
+activity_phase_resolution_summary <- phase_domain_status |>
+  dplyr::count(
+    activity_domain,
+    phase_code,
+    domain_resolution,
+    name = "n_records"
+  ) |>
+  dplyr::arrange(
+    activity_domain,
+    match(
+      phase_code,
+      phase_cols
+    ),
+    domain_resolution
+  )
+
+readr::write_csv(
+  activity_preprocessing_summary,
+  file.path(
+    OUTPUT_DIR,
+    "activity_preprocessing_summary.csv"
+  )
+)
+
+readr::write_csv(
+  activity_place_summary,
+  file.path(
+    OUTPUT_DIR,
+    "activity_place_summary.csv"
+  )
+)
+
+readr::write_csv(
+  activity_phase_resolution_summary,
+  file.path(
+    OUTPUT_DIR,
+    "activity_phase_resolution_summary.csv"
+  )
+)
+
+cat(
+  "Output CSV:",
+  OUTPUT_CSV,
+  "\n"
+)
+
+print(
+  activity_place_summary
+)
+```
+
+# 08. audit-check
+
+**目的**：自動分類の範囲と、今後辞書を拡張すべき未分類・曖昧値を確認する。
+
+```{r p08_audit_check, eval=TRUE}
+assignment_source_summary <- assignment_audit |>
+  dplyr::count(
+    activity_domain,
+    assignment_status,
+    evidence_source,
+    name = "n_assignments"
+  ) |>
+  dplyr::arrange(
+    activity_domain,
+    assignment_status,
+    dplyr::desc(
+      n_assignments
+    )
+  )
+
+phase_domain_present_summary <- phase_domain_status |>
+  dplyr::filter(
+    domain_presence == 1L,
+    !is.na(domain_presence)
+  ) |>
+  dplyr::count(
+    activity_domain,
+    phase_code,
+    name = "n_present"
+  ) |>
+  dplyr::arrange(
+    activity_domain,
+    match(
+      phase_code,
+      phase_cols
+    )
+  )
+
+phase_domain_unresolved_summary <- phase_domain_status |>
+  dplyr::filter(
+    is.na(domain_presence)
+  ) |>
+  dplyr::count(
+    activity_domain,
+    phase_code,
+    domain_status,
+    name = "n_unresolved"
+  ) |>
+  dplyr::arrange(
+    activity_domain,
+    match(
+      phase_code,
+      phase_cols
+    )
+  )
+
+unbalanced_unclassified_tokens <- sum(
+  !unclassified_parenthesis_check$balanced_parentheses
+)
+
+audit_check <- tibble::tibble(
+  item = c(
+    "input_rows",
+    "output_rows",
+    "unclassified_sitetype_token_types",
+    "unclassified_sitetype_token_occurrences",
+    "unbalanced_parenthesis_unclassified_token_types",
+    "temporally_ambiguous_assignments",
+    "incompatible_assignments",
+    "direct_present_assignments",
+    "domain_unresolved_phase_statuses",
+    "general_unresolved_due_to_specialized_ambiguity",
+    "domain_presence_when_phase_absent",
+    "direct_present_when_phase_absent",
+    "duplicate_row_phase_domain"
+  ),
+  value = c(
+    nrow(raw),
+    nrow(activity_output),
+    nrow(unclassified_sitetype_tokens),
+    sum(
+      unclassified_sitetype_tokens$n_records
+    ),
+    unbalanced_unclassified_tokens,
+    sum(
+      assignment_audit$assignment_status ==
+        "temporally_ambiguous",
+      na.rm = TRUE
+    ),
+    sum(
+      assignment_audit$assignment_status ==
+        "incompatible",
+      na.rm = TRUE
+    ),
+    sum(
+      assignment_audit$assignment_status ==
+        "present",
+      na.rm = TRUE
+    ),
+    sum(
+      is.na(
+        phase_domain_status$domain_presence
+      )
+    ),
+    sum(
+      phase_domain_status$activity_domain == "general_activity" &
+        phase_domain_status$domain_status ==
+          "temporally_ambiguous_due_to_specialized",
+      na.rm = TRUE
+    ),
+    sum(
+      phase_domain_status$phase_presence == 0L &
+        phase_domain_status$domain_presence == 1L,
+      na.rm = TRUE
+    ),
+    sum(
+      phase_domain_status$phase_presence == 0L &
+        phase_domain_status$direct_present,
+      na.rm = TRUE
+    ),
+    sum(
+      duplicated(
+        phase_domain_status[
+          ,
+          c(
+            "row_id",
+            "phase_code",
+            "activity_domain"
+          )
+        ]
+      )
+    )
+  )
+)
+
+readr::write_csv(
+  audit_check,
+  file.path(
+    OUTPUT_DIR,
+    "activity_audit_check.csv"
+  )
+)
+
+readr::write_csv(
+  assignment_source_summary,
+  file.path(
+    OUTPUT_DIR,
+    "activity_assignment_source_summary.csv"
+  )
+)
+
+readr::write_csv(
+  phase_domain_present_summary,
+  file.path(
+    OUTPUT_DIR,
+    "activity_phase_domain_present_summary.csv"
+  )
+)
+
+readr::write_csv(
+  phase_domain_unresolved_summary,
+  file.path(
+    OUTPUT_DIR,
+    "activity_phase_domain_unresolved_summary.csv"
+  )
+)
+
+tagged_temporal_ambiguity_summary <- assignment_audit |>
+  dplyr::filter(
+    evidence_source == "ArchaeologicalFeatures_tagged",
+    assignment_status == "temporally_ambiguous"
+  ) |>
+  dplyr::count(
+    activity_domain,
+    compatible_phases,
+    name = "n_assignments"
+  ) |>
+  dplyr::arrange(
+    activity_domain,
+    dplyr::desc(n_assignments)
+  )
+
+readr::write_csv(
+  tagged_temporal_ambiguity_summary,
+  file.path(
+    OUTPUT_DIR,
+    "activity_tagged_temporal_ambiguity_summary.csv"
+  )
+)
+
+print(audit_check)
+print(phase_domain_present_summary)
+print(phase_domain_unresolved_summary)
+```

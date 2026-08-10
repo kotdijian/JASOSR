@@ -1,6 +1,0 @@
-activity_domain,source_column,available
-all_land_use,NA,TRUE
-general_activity,activity_general_activity,FALSE
-monument,activity_monument,FALSE
-institutional,activity_institutional,FALSE
-production,activity_production,FALSE

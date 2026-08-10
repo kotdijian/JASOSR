@@ -1,8 +1,0 @@
-sequence_class_code,sequence_class,criterion,interpretation
-0,no_presence,presence_phase_count == 0,対象7時期に出現記録なし
-1,single_phase,presence_phase_count == 1,1時期のみ出現
-2,continuous_2phase,gap_count == 0 and longest_run_length == 2,2時期連続
-3,continuous_3_4phase,gap_count == 0 and longest_run_length is 3 or 4,3〜4時期連続
-4,continuous_5_7phase,gap_count == 0 and longest_run_length is 5 to 7,5〜7時期連続
-5,intermittent_gap1,gap_count == 1,出現runの間に1回のapparent_absenceを挟む
-6,intermittent_gap2plus,gap_count >= 2,出現runの間に2回以上のapparent_absenceを挟む

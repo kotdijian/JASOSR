@@ -1,8 +1,0 @@
-sequence_class_code,sequence_class,criterion
-0,no_presence,presence_phase_count == 0
-1,single_phase,presence_phase_count == 1
-2,continuous_2phase,gap_count == 0 and longest_run_length == 2
-3,continuous_3_4phase,gap_count == 0 and longest_run_length is 3 or 4
-4,continuous_5_7phase,gap_count == 0 and longest_run_length is 5 to 7
-5,intermittent_gap1,gap_count == 1
-6,intermittent_gap2plus,gap_count >= 2

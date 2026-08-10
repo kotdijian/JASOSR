@@ -1,5 +1,0 @@
-from_state,to_state,n_transitions,n_from_state,markov_conditional_probability,transition_label
-apparent_absence,apparent_absence,16257,23041,0.705568334707695,apparent_absence -> apparent_absence
-apparent_absence,presence,6784,23041,0.294431665292305,apparent_absence -> presence
-presence,apparent_absence,6455,10703,0.6031019340371858,presence -> apparent_absence
-presence,presence,4248,10703,0.3968980659628142,presence -> presence
