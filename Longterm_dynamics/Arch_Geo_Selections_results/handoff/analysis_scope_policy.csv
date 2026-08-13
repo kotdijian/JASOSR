@@ -1,0 +1,12 @@
+item,status,interpretation
+phase_landform_composition,implemented,時代別遺跡地点の地形構成。環境のavailable areaを分母にしない。
+phase_watersystem_composition,implemented,時代別遺跡地点の水系構成。
+relative_archaeological_concentration,implemented,各時代の構成比を全分析地点の構成比と比較する。selection ratioではない。
+phase_composition_distance,implemented,Jensen-Shannon/Hellinger/Bray-Curtisによる時代間構成変化。記述的距離。
+correspondence_analysis,implemented_exploratory,phase×landform count tableの記述的ordination。地点の複数時期所属を考慮した推測統計ではない。
+landscape_unit_trajectory,implemented,watersystem×unit basin×landformの観測遺跡記録の継続性。景観利用可能性そのものではない。
+transition_geography,implemented,0->0を除外したactive transitionの地形・水系構成。
+environmental_selection,not_yet_identifiable,available landscape areaがないため選好・回避とは呼ばない。
+river_distance_effect,not_yet_identifiable,河川line geometryがないため未計算。
+terrain_continuous_covariates,not_yet_identifiable,DEMがないため標高・傾斜・比高・TPI等は未計算。
+survey_effort_adjustment,not_yet_identifiable,調査範囲・調査強度データがないため未補正。

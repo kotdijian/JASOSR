@@ -1,0 +1,4055 @@
+---
+title: "Arch-Geo-Selections: archaeological geography profiles and landscape continuity"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+# 01. setup
+
+**目的**：現行の東京都遺跡データだけを用いて、時代別の地形・河川流域立地構成、時代間の構成変化、地理単位ごとの継続性、地点Transitionの地理的偏りを分析する。
+
+**重要な前提**：現段階では「地形ごとの利用可能面積（available landscape）」を持たないため、ここで評価するのは**遺跡記録内部の立地構成・相対的偏在**であり、環境に対する厳密な「選好／回避（selection）」ではない。将来、地形面データ・流域polygon・河川line・DEM等を追加した際にselection analysisへ接続できるよう、出力とjoin keyを保存する。
+
+```{r c01_setup, eval=TRUE, message=FALSE, warning=FALSE}
+analysis_version <- "1.0.2"
+analysis_name <- "Arch-Geo-Selections"
+
+analysis_run_id <- paste0(
+  "arch_geo_",
+  format(Sys.time(), "%Y%m%d_%H%M%S")
+)
+
+analysis_datetime_utc <- format(
+  Sys.time(),
+  tz = "UTC",
+  format = "%Y-%m-%dT%H:%M:%SZ"
+)
+
+required_packages <- c(
+  "readr",
+  "dplyr",
+  "tidyr",
+  "tibble",
+  "stringr",
+  "purrr",
+  "ggplot2",
+  "sf",
+  "DBI",
+  "RSQLite"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "次のRパッケージを先にインストールしてください: ",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+
+invisible(
+  lapply(
+    required_packages,
+    library,
+    character.only = TRUE
+  )
+)
+
+safe_name <- function(x) {
+  x |>
+    as.character() |>
+    stringr::str_replace_all(
+      "[^A-Za-z0-9_]+",
+      "_"
+    ) |>
+    stringr::str_replace_all(
+      "_+",
+      "_"
+    ) |>
+    stringr::str_replace_all(
+      "^_|_$",
+      ""
+    )
+}
+
+as_binary01 <- function(x) {
+  x_num <- suppressWarnings(
+    readr::parse_number(
+      as.character(x)
+    )
+  )
+
+  as.integer(
+    tidyr::replace_na(
+      x_num,
+      0
+    ) > 0
+  )
+}
+
+safe_divide <- function(num, den) {
+  dplyr::if_else(
+    is.finite(den) &
+      den > 0,
+    num / den,
+    NA_real_
+  )
+}
+
+normalised_entropy <- function(x) {
+  x <- x[
+    is.finite(x) &
+      x > 0
+  ]
+
+  if (length(x) <= 1) {
+    return(0)
+  }
+
+  p <- x / sum(x)
+
+  -sum(
+    p * log(p)
+  ) /
+    log(length(p))
+}
+
+js_divergence <- function(p, q) {
+  p <- tidyr::replace_na(
+    as.numeric(p),
+    0
+  )
+  q <- tidyr::replace_na(
+    as.numeric(q),
+    0
+  )
+
+  if (sum(p) <= 0 || sum(q) <= 0) {
+    return(NA_real_)
+  }
+
+  p <- p / sum(p)
+  q <- q / sum(q)
+  m <- 0.5 * (p + q)
+
+  kl_part <- function(a, b) {
+    idx <- a > 0 & b > 0
+    sum(
+      a[idx] *
+        log2(
+          a[idx] /
+            b[idx]
+        )
+    )
+  }
+
+  0.5 *
+    kl_part(p, m) +
+    0.5 *
+    kl_part(q, m)
+}
+
+hellinger_distance <- function(p, q) {
+  p <- tidyr::replace_na(
+    as.numeric(p),
+    0
+  )
+  q <- tidyr::replace_na(
+    as.numeric(q),
+    0
+  )
+
+  if (sum(p) <= 0 || sum(q) <= 0) {
+    return(NA_real_)
+  }
+
+  p <- p / sum(p)
+  q <- q / sum(q)
+
+  sqrt(
+    sum(
+      (
+        sqrt(p) -
+          sqrt(q)
+      ) ^ 2
+    )
+  ) /
+    sqrt(2)
+}
+
+bray_curtis_distance <- function(p, q) {
+  p <- tidyr::replace_na(
+    as.numeric(p),
+    0
+  )
+  q <- tidyr::replace_na(
+    as.numeric(q),
+    0
+  )
+
+  if (sum(p) <= 0 || sum(q) <= 0) {
+    return(NA_real_)
+  }
+
+  # "composition distance"として使うため、
+  # 時代ごとの総地点数の差を除いて比率分布へ正規化する。
+  p <- p / sum(p)
+  q <- q / sum(q)
+
+  den <- sum(
+    p + q
+  )
+
+  sum(
+    abs(
+      p - q
+    )
+  ) /
+    den
+}
+
+binary_run_metrics <- function(v) {
+  v <- as.integer(
+    v > 0
+  )
+
+  if (length(v) == 0) {
+    return(
+      tibble::tibble(
+        active_phase_count = 0L,
+        run_count = 0L,
+        longest_run_length = 0L,
+        gap_count = 0L,
+        gap_phase_count = 0L,
+        first_active_phase_order = NA_integer_,
+        last_active_phase_order = NA_integer_
+      )
+    )
+  }
+
+  idx <- which(
+    v == 1L
+  )
+
+  if (length(idx) == 0) {
+    return(
+      tibble::tibble(
+        active_phase_count = 0L,
+        run_count = 0L,
+        longest_run_length = 0L,
+        gap_count = 0L,
+        gap_phase_count = 0L,
+        first_active_phase_order = NA_integer_,
+        last_active_phase_order = NA_integer_
+      )
+    )
+  }
+
+  rr <- rle(
+    v == 1L
+  )
+
+  run_lengths <- rr$lengths[
+    rr$values
+  ]
+
+  first_idx <- min(idx)
+  last_idx <- max(idx)
+
+  middle <- v[
+    first_idx:last_idx
+  ]
+
+  gap_rr <- rle(
+    middle == 0L
+  )
+
+  gap_lengths <- gap_rr$lengths[
+    gap_rr$values
+  ]
+
+  tibble::tibble(
+    active_phase_count = sum(v),
+    run_count = length(run_lengths),
+    longest_run_length = max(run_lengths),
+    gap_count = length(gap_lengths),
+    gap_phase_count = sum(gap_lengths),
+    first_active_phase_order = first_idx,
+    last_active_phase_order = last_idx
+  )
+}
+
+classify_geo_trajectory <- function(
+  active_phase_count,
+  longest_run_length,
+  gap_count
+) {
+  dplyr::case_when(
+    active_phase_count == 0 ~
+      "no_recorded_presence",
+    active_phase_count == 1 ~
+      "single_phase",
+    gap_count == 0 &
+      longest_run_length == 2 ~
+      "continuous_2phase",
+    gap_count == 0 &
+      longest_run_length %in% 3:4 ~
+      "continuous_3_4phase",
+    gap_count == 0 &
+      longest_run_length >= 5 ~
+      "continuous_5_7phase",
+    gap_count == 1 ~
+      "intermittent_gap1",
+    gap_count >= 2 ~
+      "intermittent_gap2plus",
+    TRUE ~
+      "other"
+  )
+}
+
+write_gpkg_layer_safe <- function(
+  x,
+  dsn,
+  layer
+) {
+  if (!inherits(x, "sf")) {
+    stop(
+      "GPKG出力対象がsfではありません: ",
+      layer
+    )
+  }
+
+  if (nrow(x) == 0) {
+    warning(
+      "0件のためGPKGレイヤ出力をスキップします: ",
+      layer
+    )
+    return(
+      invisible(FALSE)
+    )
+  }
+
+  dir.create(
+    dirname(dsn),
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+
+  if (file.exists(dsn)) {
+    existing_layers <- sf::st_layers(
+      dsn
+    )$name
+
+    if (layer %in% existing_layers) {
+      sf::st_delete(
+        dsn,
+        layer = layer,
+        quiet = TRUE
+      )
+    }
+  }
+
+  sf::st_write(
+    x,
+    dsn = dsn,
+    layer = layer,
+    quiet = TRUE
+  )
+
+  invisible(TRUE)
+}
+
+write_gpkg_attribute_table <- function(
+  df,
+  dsn,
+  table_name,
+  description = ""
+) {
+  if (!file.exists(dsn)) {
+    warning(
+      "GPKGがまだ存在しないため属性テーブルをスキップします: ",
+      table_name
+    )
+    return(
+      invisible(FALSE)
+    )
+  }
+
+  con <- DBI::dbConnect(
+    RSQLite::SQLite(),
+    dsn
+  )
+
+  on.exit(
+    DBI::dbDisconnect(con),
+    add = TRUE
+  )
+
+  DBI::dbWriteTable(
+    con,
+    table_name,
+    as.data.frame(df),
+    overwrite = TRUE,
+    row.names = FALSE
+  )
+
+  if (
+    DBI::dbExistsTable(
+      con,
+      "gpkg_contents"
+    )
+  ) {
+    DBI::dbExecute(
+      con,
+      "DELETE FROM gpkg_contents WHERE table_name = ?",
+      params = list(
+        table_name
+      )
+    )
+
+    DBI::dbExecute(
+      con,
+      paste(
+        "INSERT INTO gpkg_contents",
+        "(table_name, data_type, identifier, description, last_change, srs_id)",
+        "VALUES (?, 'attributes', ?, ?, ?, NULL)"
+      ),
+      params = list(
+        table_name,
+        table_name,
+        description,
+        analysis_datetime_utc
+      )
+    )
+  }
+
+  invisible(TRUE)
+}
+```
+
+# 02. paths-and-parameters
+
+**目的**：既存CSVだけで完結する分析条件を定義し、将来データ追加時にも同じ出力構造を再利用できるようにする。
+
+```{r c02_paths_and_parameters, eval=TRUE}
+# ------------------------------------------------------------------
+# INPUT
+# ------------------------------------------------------------------
+# activity-domain前処理済みCSVが同じfolderにあれば優先して読む。
+# 無ければGSI地形分類 + W07水系付与済みCSVだけで完結する。
+input_candidates <- c(
+  "13Tokyo_chronology_gsi_landform_activity.csv",
+  "13Tokyo_chronology_gsi_landform.csv"
+)
+
+input_csv <- input_candidates[
+  file.exists(
+    input_candidates
+  )
+][1]
+
+if (
+  length(input_csv) == 0 ||
+    is.na(input_csv)
+) {
+  stop(
+    "入力CSVが見つかりません。候補: ",
+    paste(
+      input_candidates,
+      collapse = ", "
+    )
+  )
+}
+
+results_dir <- "Arch_Geo_Selections_results"
+csv_dir <- file.path(
+  results_dir,
+  "csv"
+)
+figure_dir <- file.path(
+  results_dir,
+  "figure"
+)
+gpkg_dir <- file.path(
+  results_dir,
+  "gpkg"
+)
+handoff_dir <- file.path(
+  results_dir,
+  "handoff"
+)
+
+arch_geo_gpkg <- file.path(
+  gpkg_dir,
+  "Arch-Geo-Selections.gpkg"
+)
+
+for (
+  d in c(
+    results_dir,
+    csv_dir,
+    figure_dir,
+    gpkg_dir,
+    handoff_dir
+  )
+) {
+  dir.create(
+    d,
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+}
+
+# ------------------------------------------------------------------
+# TIME
+# ------------------------------------------------------------------
+phase_cols <- c(
+  "Pa",
+  "Jo",
+  "Ya",
+  "Ko",
+  "Na",
+  "He",
+  "Me"
+)
+
+phase_table <- tibble::tibble(
+  phase_code = phase_cols,
+  phase_order = seq_along(
+    phase_cols
+  ),
+  phase_label_ja = c(
+    "旧石器",
+    "縄文",
+    "弥生",
+    "古墳",
+    "奈良",
+    "平安",
+    "中世"
+  ),
+  phase_label_en = c(
+    "Palaeolithic",
+    "Jomon",
+    "Yayoi",
+    "Kofun",
+    "Nara",
+    "Heian",
+    "Medieval"
+  )
+)
+
+phase_pair_table <- tibble::tibble(
+  from_phase = phase_cols[-length(phase_cols)],
+  to_phase = phase_cols[-1],
+  phase_pair_order = seq_len(
+    length(phase_cols) - 1
+  )
+) |>
+  dplyr::mutate(
+    phase_pair = paste0(
+      from_phase,
+      "->",
+      to_phase
+    )
+  )
+
+chronology_marker_cols_candidate <- c(
+  "Pa",
+  "Jo",
+  "Ya",
+  "Ko",
+  "As",
+  "An",
+  "Na",
+  "He",
+  "Me",
+  "Ka",
+  "Nb",
+  "Mu",
+  "Se",
+  "EM",
+  "AM",
+  "Ed",
+  "Md",
+  "Pr",
+  "Un"
+)
+
+preferred_id_col <- "JASID"
+lon_col <- "Lon"
+lat_col <- "Lat"
+em_col <- "EM"
+
+# ------------------------------------------------------------------
+# NATURAL-GEOGRAPHY FIELDS
+# ------------------------------------------------------------------
+required_geo_cols <- c(
+  "gsi_landform_code",
+  "gsi_landform_class",
+  "watersystem_code",
+  "watersystem_name",
+  "river_code",
+  "river_name",
+  "unit_basin_code"
+)
+
+# 既往分析と同じ表示上の扱い。
+# raw値は変更しない。
+unknown_watersystem_display <-
+  "古川・目黒川・立会川・呑川"
+
+# ------------------------------------------------------------------
+# DESCRIPTIVE THRESHOLDS
+# ------------------------------------------------------------------
+# 地理単位別Transition等を本文解釈に用いる最小地点数。
+# 20未満もCSVには保存するがdescriptive_onlyとする。
+geo_min_places <- 20L
+
+# Landscape-unit trajectoryの図示対象。
+trajectory_min_total_presence_records <- 20L
+trajectory_top_n <- 30L
+
+# relative-concentration heatmapで表示するlandformは、
+# 現行データでは全分類を対象とする。
+plot_all_landform_classes <- TRUE
+
+# ------------------------------------------------------------------
+# IMPORTANT INTERPRETATION POLICY
+# ------------------------------------------------------------------
+analysis_scope_policy <- tibble::tribble(
+  ~item, ~status, ~interpretation,
+  "phase_landform_composition",
+  "implemented",
+  "時代別遺跡地点の地形構成。環境のavailable areaを分母にしない。",
+  "phase_watersystem_composition",
+  "implemented",
+  "時代別遺跡地点の水系構成。",
+  "relative_archaeological_concentration",
+  "implemented",
+  "各時代の構成比を全分析地点の構成比と比較する。selection ratioではない。",
+  "phase_composition_distance",
+  "implemented",
+  "Jensen-Shannon/Hellinger/Bray-Curtisによる時代間構成変化。記述的距離。",
+  "correspondence_analysis",
+  "implemented_exploratory",
+  "phase×landform count tableの記述的ordination。地点の複数時期所属を考慮した推測統計ではない。",
+  "landscape_unit_trajectory",
+  "implemented",
+  "watersystem×unit basin×landformの観測遺跡記録の継続性。景観利用可能性そのものではない。",
+  "transition_geography",
+  "implemented",
+  "0->0を除外したactive transitionの地形・水系構成。",
+  "environmental_selection",
+  "not_yet_identifiable",
+  "available landscape areaがないため選好・回避とは呼ばない。",
+  "river_distance_effect",
+  "not_yet_identifiable",
+  "河川line geometryがないため未計算。",
+  "terrain_continuous_covariates",
+  "not_yet_identifiable",
+  "DEMがないため標高・傾斜・比高・TPI等は未計算。",
+  "survey_effort_adjustment",
+  "not_yet_identifiable",
+  "調査範囲・調査強度データがないため未補正。"
+)
+
+readr::write_csv(
+  phase_table,
+  file.path(
+    csv_dir,
+    "phase_table.csv"
+  )
+)
+
+readr::write_csv(
+  phase_pair_table,
+  file.path(
+    csv_dir,
+    "phase_pair_table.csv"
+  )
+)
+
+readr::write_csv(
+  analysis_scope_policy,
+  file.path(
+    csv_dir,
+    "analysis_scope_policy.csv"
+  )
+)
+```
+
+# 03. read-and-quality-control
+
+**目的**：既往の継続性分析と同じ分析母集団を再構築する。座標不正地点を除外し、対象7時期以外も含む年代marker全体を用いてEM-only地点を除外する。
+
+```{r c03_read_and_quality_control, eval=TRUE}
+input_all <- readr::read_csv(
+  input_csv,
+  show_col_types = FALSE,
+  guess_max = 100000
+)
+
+required_cols <- c(
+  preferred_id_col,
+  lon_col,
+  lat_col,
+  phase_cols,
+  required_geo_cols
+)
+
+missing_required_cols <- setdiff(
+  required_cols,
+  names(input_all)
+)
+
+if (length(missing_required_cols) > 0) {
+  stop(
+    "必要な列がありません: ",
+    paste(
+      missing_required_cols,
+      collapse = ", "
+    )
+  )
+}
+
+if (
+  anyDuplicated(
+    input_all[[preferred_id_col]]
+  ) > 0
+) {
+  stop(
+    preferred_id_col,
+    " が一意ではありません。"
+  )
+}
+
+input_all <- input_all |>
+  dplyr::mutate(
+    dplyr::across(
+      dplyr::all_of(
+        phase_cols
+      ),
+      as_binary01
+    ),
+    lon_numeric = suppressWarnings(
+      as.numeric(
+        .data[[lon_col]]
+      )
+    ),
+    lat_numeric = suppressWarnings(
+      as.numeric(
+        .data[[lat_col]]
+      )
+    ),
+    coordinate_valid =
+      is.finite(lon_numeric) &
+      is.finite(lat_numeric) &
+      lon_numeric >= -180 &
+      lon_numeric <= 180 &
+      lat_numeric >= -90 &
+      lat_numeric <= 90
+  )
+
+coordinate_excluded <- input_all |>
+  dplyr::filter(
+    !coordinate_valid
+  )
+
+coordinate_valid_df <- input_all |>
+  dplyr::filter(
+    coordinate_valid
+  )
+
+chronology_marker_cols <- intersect(
+  chronology_marker_cols_candidate,
+  names(
+    coordinate_valid_df
+  )
+)
+
+if (
+  em_col %in%
+    chronology_marker_cols
+) {
+  marker_numeric <- coordinate_valid_df |>
+    dplyr::select(
+      dplyr::all_of(
+        chronology_marker_cols
+      )
+    ) |>
+    dplyr::mutate(
+      dplyr::across(
+        dplyr::everything(),
+        ~ tidyr::replace_na(
+          suppressWarnings(
+            readr::parse_number(
+              as.character(.x)
+            )
+          ),
+          0
+        )
+      )
+    )
+
+  other_marker_cols <- setdiff(
+    chronology_marker_cols,
+    em_col
+  )
+
+  em_only_flag <-
+    marker_numeric[[em_col]] > 0 &
+    rowSums(
+      marker_numeric[
+        ,
+        other_marker_cols,
+        drop = FALSE
+      ] > 0,
+      na.rm = TRUE
+    ) == 0
+
+} else {
+  em_only_flag <- rep(
+    FALSE,
+    nrow(
+      coordinate_valid_df
+    )
+  )
+}
+
+analysis_places <- coordinate_valid_df |>
+  dplyr::filter(
+    !em_only_flag
+  ) |>
+  dplyr::mutate(
+    place_id = as.character(
+      .data[[preferred_id_col]]
+    ),
+    target_phase_presence_count = rowSums(
+      dplyr::pick(
+        dplyr::all_of(
+          phase_cols
+        )
+      ),
+      na.rm = TRUE
+    )
+  )
+
+analysis_population_summary <- tibble::tibble(
+  item = c(
+    "input_rows",
+    "invalid_coordinate_excluded",
+    "coordinate_valid_rows",
+    "em_only_excluded",
+    "analysis_rows"
+  ),
+  n = c(
+    nrow(input_all),
+    nrow(coordinate_excluded),
+    nrow(coordinate_valid_df),
+    sum(
+      em_only_flag,
+      na.rm = TRUE
+    ),
+    nrow(analysis_places)
+  )
+)
+
+input_md5 <- unname(
+  tools::md5sum(
+    input_csv
+  )
+)
+
+analysis_metadata <- tibble::tibble(
+  analysis_name = analysis_name,
+  analysis_version = analysis_version,
+  analysis_run_id = analysis_run_id,
+  analysis_datetime_utc = analysis_datetime_utc,
+  input_csv = input_csv,
+  input_md5 = input_md5,
+  phase_codes = paste(
+    phase_cols,
+    collapse = ","
+  ),
+  n_analysis_places = nrow(
+    analysis_places
+  ),
+  available_area_used = FALSE,
+  selection_inference_allowed = FALSE
+)
+
+readr::write_csv(
+  analysis_population_summary,
+  file.path(
+    csv_dir,
+    "analysis_population_summary.csv"
+  )
+)
+
+readr::write_csv(
+  analysis_metadata,
+  file.path(
+    csv_dir,
+    "analysis_metadata.csv"
+  )
+)
+
+print(
+  analysis_population_summary
+)
+```
+
+# 04. build-geography-units
+
+**目的**：地点に付与済みのGSI地形分類とW07属性から、後続分析で安定して再利用できる自然地理unit IDを構築する。
+
+```{r c04_build_geography_units, eval=TRUE}
+analysis_places <- analysis_places |>
+  dplyr::mutate(
+    # raw valueを保持したままdisplay labelを作る
+    watersystem_label = dplyr::case_when(
+      is.na(watersystem_name) ~
+        NA_character_,
+      watersystem_name == "unknown" ~
+        unknown_watersystem_display,
+      TRUE ~
+        as.character(
+          watersystem_name
+        )
+    ),
+
+    river_label = dplyr::case_when(
+      is.na(river_name) ~
+        NA_character_,
+      river_name == "unknown" ~
+        "unknown",
+      TRUE ~
+        as.character(
+          river_name
+        )
+    ),
+
+    # 主分析はGSIの統合地形class単位。
+    # raw codeは詳細階層として別IDで保持する。
+    landform_code_unit_id = dplyr::if_else(
+      !is.na(
+        gsi_landform_code
+      ) &
+        nzchar(
+          as.character(
+            gsi_landform_code
+          )
+        ),
+      paste0(
+        "LF_CODE_",
+        safe_name(
+          gsi_landform_code
+        )
+      ),
+      NA_character_
+    ),
+
+    # 日本語の地形classをASCII専用safe_name()へ通すと
+    # 複数classが同じIDへ潰れる可能性があるため、
+    # class文字列そのものを安定IDの一部として保持する。
+    landform_unit_id = dplyr::if_else(
+      !is.na(
+        gsi_landform_class
+      ) &
+        nzchar(
+          as.character(
+            gsi_landform_class
+          )
+        ),
+      paste0(
+        "LF_CLASS::",
+        stringr::str_squish(
+          as.character(
+            gsi_landform_class
+          )
+        )
+      ),
+      NA_character_
+    ),
+
+    landform_unit_label = dplyr::if_else(
+      !is.na(
+        gsi_landform_class
+      ) &
+        nzchar(
+          as.character(
+            gsi_landform_class
+          )
+        ),
+      as.character(
+        gsi_landform_class
+      ),
+      NA_character_
+    ),
+
+    watersystem_unit_id = dplyr::if_else(
+      !is.na(
+        watersystem_code
+      ) &
+        nzchar(
+          as.character(
+            watersystem_code
+          )
+        ),
+      paste0(
+        "WS_",
+        as.character(
+          watersystem_code
+        )
+      ),
+      NA_character_
+    ),
+
+    watersystem_unit_label = dplyr::if_else(
+      !is.na(
+        watersystem_unit_id
+      ),
+      paste0(
+        as.character(
+          watersystem_code
+        ),
+        " / ",
+        dplyr::coalesce(
+          watersystem_label,
+          "unknown"
+        )
+      ),
+      NA_character_
+    ),
+
+    basin_unit_id = dplyr::if_else(
+      !is.na(
+        watersystem_code
+      ) &
+        !is.na(
+          unit_basin_code
+        ) &
+        nzchar(
+          as.character(
+            watersystem_code
+          )
+        ) &
+        nzchar(
+          as.character(
+            unit_basin_code
+          )
+        ),
+      paste0(
+        "B_",
+        as.character(
+          watersystem_code
+        ),
+        "_",
+        as.character(
+          unit_basin_code
+        )
+      ),
+      NA_character_
+    ),
+
+    basin_unit_label = dplyr::if_else(
+      !is.na(
+        basin_unit_id
+      ),
+      paste0(
+        dplyr::coalesce(
+          watersystem_label,
+          "unknown"
+        ),
+        " / basin ",
+        as.character(
+          unit_basin_code
+        )
+      ),
+      NA_character_
+    ),
+
+    landscape_unit_id = dplyr::if_else(
+      !is.na(
+        basin_unit_id
+      ) &
+        !is.na(
+          landform_unit_id
+        ),
+      paste0(
+        basin_unit_id,
+        "_",
+        landform_unit_id
+      ),
+      NA_character_
+    ),
+
+    landscape_unit_label = dplyr::if_else(
+      !is.na(
+        landscape_unit_id
+      ),
+      paste0(
+        dplyr::coalesce(
+          basin_unit_label,
+          "unknown basin"
+        ),
+        " / ",
+        dplyr::coalesce(
+          landform_unit_label,
+          "unknown landform"
+        )
+      ),
+      NA_character_
+    )
+  )
+
+geography_completeness <- tibble::tibble(
+  geography = c(
+    "landform",
+    "watersystem",
+    "unit_basin",
+    "landscape_unit"
+  ),
+  n_known = c(
+    sum(
+      !is.na(
+        analysis_places$landform_unit_id
+      )
+    ),
+    sum(
+      !is.na(
+        analysis_places$watersystem_unit_id
+      )
+    ),
+    sum(
+      !is.na(
+        analysis_places$basin_unit_id
+      )
+    ),
+    sum(
+      !is.na(
+        analysis_places$landscape_unit_id
+      )
+    )
+  ),
+  n_analysis_places = nrow(
+    analysis_places
+  )
+) |>
+  dplyr::mutate(
+    n_missing =
+      n_analysis_places -
+      n_known,
+    coverage =
+      n_known /
+      n_analysis_places
+  )
+
+geo_unit_dictionary <- dplyr::bind_rows(
+  analysis_places |>
+    dplyr::filter(
+      !is.na(
+        landform_unit_id
+      )
+    ) |>
+    dplyr::transmute(
+      scheme = "landform",
+      group_id = landform_unit_id,
+      group_label = landform_unit_label,
+      watersystem_code = NA_character_,
+      watersystem_label = NA_character_,
+      unit_basin_code = NA_character_,
+      landform_code = NA_character_,
+      landform_class = as.character(
+        gsi_landform_class
+      )
+    ),
+
+  analysis_places |>
+    dplyr::filter(
+      !is.na(
+        watersystem_unit_id
+      )
+    ) |>
+    dplyr::transmute(
+      scheme = "watersystem",
+      group_id = watersystem_unit_id,
+      group_label = watersystem_unit_label,
+      watersystem_code = as.character(
+        watersystem_code
+      ),
+      watersystem_label = watersystem_label,
+      unit_basin_code = NA_character_,
+      landform_code = NA_character_,
+      landform_class = NA_character_
+    ),
+
+  analysis_places |>
+    dplyr::filter(
+      !is.na(
+        basin_unit_id
+      )
+    ) |>
+    dplyr::transmute(
+      scheme = "unit_basin",
+      group_id = basin_unit_id,
+      group_label = basin_unit_label,
+      watersystem_code = as.character(
+        watersystem_code
+      ),
+      watersystem_label = watersystem_label,
+      unit_basin_code = as.character(
+        unit_basin_code
+      ),
+      landform_code = NA_character_,
+      landform_class = NA_character_
+    ),
+
+  analysis_places |>
+    dplyr::filter(
+      !is.na(
+        landscape_unit_id
+      )
+    ) |>
+    dplyr::transmute(
+      scheme = "watersystem_x_unit_basin_x_landform",
+      group_id = landscape_unit_id,
+      group_label = landscape_unit_label,
+      watersystem_code = as.character(
+        watersystem_code
+      ),
+      watersystem_label = watersystem_label,
+      unit_basin_code = as.character(
+        unit_basin_code
+      ),
+      landform_code = NA_character_,
+      landform_class = as.character(
+        gsi_landform_class
+      )
+    )
+) |>
+  dplyr::distinct() |>
+  dplyr::arrange(
+    scheme,
+    group_id
+  )
+
+landform_code_dictionary <- analysis_places |>
+  dplyr::filter(
+    !is.na(
+      gsi_landform_code
+    ) |
+      !is.na(
+        gsi_landform_class
+      )
+  ) |>
+  dplyr::distinct(
+    gsi_landform_code,
+    gsi_landform_class,
+    landform_code_unit_id,
+    landform_unit_id,
+    landform_unit_label
+  ) |>
+  dplyr::arrange(
+    gsi_landform_class,
+    gsi_landform_code
+  )
+
+readr::write_csv(
+  geography_completeness,
+  file.path(
+    csv_dir,
+    "geography_completeness.csv"
+  )
+)
+
+readr::write_csv(
+  geo_unit_dictionary,
+  file.path(
+    csv_dir,
+    "geo_unit_dictionary.csv"
+  )
+)
+
+readr::write_csv(
+  landform_code_dictionary,
+  file.path(
+    csv_dir,
+    "landform_code_dictionary.csv"
+  )
+)
+
+print(
+  geography_completeness
+)
+```
+
+# 05. place-phase-long
+
+**目的**：地点×時期の0/1系列に地形・水系・流域属性を結合し、以降のすべての分析の基礎long tableを作る。
+
+```{r c05_place_phase_long, eval=TRUE}
+place_phase_long <- analysis_places |>
+  dplyr::select(
+    place_id,
+    dplyr::any_of(
+      c(
+        "SiteName_original",
+        "Address",
+        "SiteType",
+        "Lon",
+        "Lat",
+        "gsi_landform_code",
+        "gsi_landform_class",
+        "landform_code_unit_id",
+        "landform_unit_id",
+        "landform_unit_label",
+        "watersystem_code",
+        "watersystem_name",
+        "watersystem_label",
+        "watersystem_unit_id",
+        "watersystem_unit_label",
+        "river_code",
+        "river_name",
+        "river_label",
+        "unit_basin_code",
+        "basin_unit_id",
+        "basin_unit_label",
+        "landscape_unit_id",
+        "landscape_unit_label"
+      )
+    ),
+    dplyr::all_of(
+      phase_cols
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(
+      phase_cols
+    ),
+    names_to = "phase_code",
+    values_to = "presence"
+  ) |>
+  dplyr::left_join(
+    phase_table,
+    by = "phase_code"
+  ) |>
+  dplyr::mutate(
+    presence = as.integer(
+      presence > 0
+    ),
+    presence_status = dplyr::if_else(
+      presence == 1L,
+      "presence",
+      "apparent_absence"
+    )
+  ) |>
+  dplyr::arrange(
+    place_id,
+    phase_order
+  )
+
+phase_presence_total <- place_phase_long |>
+  dplyr::group_by(
+    phase_code,
+    phase_order,
+    phase_label_ja
+  ) |>
+  dplyr::summarise(
+    n_analysis_places = dplyr::n_distinct(
+      place_id
+    ),
+    presence_count = sum(
+      presence
+    ),
+    presence_rate =
+      presence_count /
+      n_analysis_places,
+    .groups = "drop"
+  )
+
+readr::write_csv(
+  place_phase_long,
+  file.path(
+    csv_dir,
+    "arch_geo_place_phase_long.csv"
+  )
+)
+
+readr::write_csv(
+  phase_presence_total,
+  file.path(
+    csv_dir,
+    "arch_geo_phase_presence_total.csv"
+  )
+)
+
+print(
+  phase_presence_total
+)
+```
+
+# 06. phase-geography-profiles
+
+**目的**：各時代に観測された遺跡地点の地形・水系・単位流域・landscape unit構成を算出する。
+
+```{r c06_phase_geography_profiles, eval=TRUE}
+build_phase_geo_profile <- function(
+  long_df,
+  group_id_col,
+  group_label_col,
+  scheme_name
+) {
+  known_presence <- long_df |>
+    dplyr::filter(
+      presence == 1L,
+      !is.na(
+        .data[[group_id_col]]
+      )
+    )
+
+  totals <- known_presence |>
+    dplyr::group_by(
+      phase_code,
+      phase_order
+    ) |>
+    dplyr::summarise(
+      phase_known_geo_total =
+        dplyr::n_distinct(
+          place_id
+        ),
+      .groups = "drop"
+    )
+
+  known_presence |>
+    dplyr::group_by(
+      phase_code,
+      phase_order,
+      group_id =
+        .data[[group_id_col]],
+      group_label =
+        .data[[group_label_col]]
+    ) |>
+    dplyr::summarise(
+      presence_count =
+        dplyr::n_distinct(
+          place_id
+        ),
+      .groups = "drop"
+    ) |>
+    dplyr::left_join(
+      totals,
+      by = c(
+        "phase_code",
+        "phase_order"
+      )
+    ) |>
+    dplyr::mutate(
+      scheme = scheme_name,
+      phase_share =
+        presence_count /
+        phase_known_geo_total
+    ) |>
+    dplyr::select(
+      scheme,
+      phase_code,
+      phase_order,
+      group_id,
+      group_label,
+      presence_count,
+      phase_known_geo_total,
+      phase_share
+    ) |>
+    dplyr::arrange(
+      phase_order,
+      dplyr::desc(
+        presence_count
+      ),
+      group_id
+    )
+}
+
+phase_landform_profile <- build_phase_geo_profile(
+  place_phase_long,
+  "landform_unit_id",
+  "landform_unit_label",
+  "landform"
+)
+
+phase_watersystem_profile <- build_phase_geo_profile(
+  place_phase_long,
+  "watersystem_unit_id",
+  "watersystem_unit_label",
+  "watersystem"
+)
+
+phase_unit_basin_profile <- build_phase_geo_profile(
+  place_phase_long,
+  "basin_unit_id",
+  "basin_unit_label",
+  "unit_basin"
+)
+
+phase_landscape_profile <- build_phase_geo_profile(
+  place_phase_long,
+  "landscape_unit_id",
+  "landscape_unit_label",
+  "watersystem_x_unit_basin_x_landform"
+)
+
+phase_geography_profile_all <- dplyr::bind_rows(
+  phase_landform_profile,
+  phase_watersystem_profile,
+  phase_unit_basin_profile,
+  phase_landscape_profile
+)
+
+phase_geography_breadth <- phase_geography_profile_all |>
+  dplyr::group_by(
+    scheme,
+    phase_code,
+    phase_order
+  ) |>
+  dplyr::summarise(
+    n_active_groups =
+      sum(
+        presence_count > 0
+      ),
+    normalised_entropy =
+      normalised_entropy(
+        presence_count
+      ),
+    max_group_share =
+      max(
+        phase_share,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  )
+
+readr::write_csv(
+  phase_landform_profile,
+  file.path(
+    csv_dir,
+    "phase_landform_profile.csv"
+  )
+)
+
+readr::write_csv(
+  phase_watersystem_profile,
+  file.path(
+    csv_dir,
+    "phase_watersystem_profile.csv"
+  )
+)
+
+readr::write_csv(
+  phase_unit_basin_profile,
+  file.path(
+    csv_dir,
+    "phase_unit_basin_profile.csv"
+  )
+)
+
+readr::write_csv(
+  phase_landscape_profile,
+  file.path(
+    csv_dir,
+    "phase_landscape_profile.csv"
+  )
+)
+
+readr::write_csv(
+  phase_geography_profile_all,
+  file.path(
+    csv_dir,
+    "phase_geography_profile_all.csv"
+  )
+)
+
+readr::write_csv(
+  phase_geography_breadth,
+  file.path(
+    csv_dir,
+    "phase_geography_breadth.csv"
+  )
+)
+```
+
+# 07. relative-archaeological-concentration
+
+**目的**：各時代の地形・水系構成が、分析対象となった遺跡地点全体の地理構成に対して相対的に高い／低いかを評価する。
+
+これは**archaeological-sample baselineとの比較**であり、地形面積を分母にしたselection ratioではない。
+
+```{r c07_relative_archaeological_concentration, eval=TRUE}
+build_sample_baseline <- function(
+  places_df,
+  group_id_col,
+  group_label_col,
+  scheme_name
+) {
+  known <- places_df |>
+    dplyr::filter(
+      !is.na(
+        .data[[group_id_col]]
+      )
+    )
+
+  total_known <- dplyr::n_distinct(
+    known$place_id
+  )
+
+  known |>
+    dplyr::group_by(
+      group_id =
+        .data[[group_id_col]],
+      group_label =
+        .data[[group_label_col]]
+    ) |>
+    dplyr::summarise(
+      baseline_place_count =
+        dplyr::n_distinct(
+          place_id
+        ),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(
+      scheme = scheme_name,
+      baseline_total =
+        total_known,
+      baseline_share =
+        baseline_place_count /
+        baseline_total
+    ) |>
+    dplyr::select(
+      scheme,
+      group_id,
+      group_label,
+      baseline_place_count,
+      baseline_total,
+      baseline_share
+    )
+}
+
+archaeological_target_sample <- analysis_places |>
+  dplyr::filter(
+    target_phase_presence_count > 0
+  )
+
+geo_sample_baseline <- dplyr::bind_rows(
+  build_sample_baseline(
+    archaeological_target_sample,
+    "landform_unit_id",
+    "landform_unit_label",
+    "landform"
+  ),
+  build_sample_baseline(
+    archaeological_target_sample,
+    "watersystem_unit_id",
+    "watersystem_unit_label",
+    "watersystem"
+  ),
+  build_sample_baseline(
+    archaeological_target_sample,
+    "basin_unit_id",
+    "basin_unit_label",
+    "unit_basin"
+  ),
+  build_sample_baseline(
+    archaeological_target_sample,
+    "landscape_unit_id",
+    "landscape_unit_label",
+    "watersystem_x_unit_basin_x_landform"
+  )
+)
+
+phase_relative_concentration <- phase_geography_profile_all |>
+  dplyr::left_join(
+    geo_sample_baseline |>
+      dplyr::select(
+        scheme,
+        group_id,
+        baseline_place_count,
+        baseline_total,
+        baseline_share
+      ),
+    by = c(
+      "scheme",
+      "group_id"
+    )
+  ) |>
+  dplyr::mutate(
+    phase_share_minus_baseline =
+      phase_share -
+      baseline_share,
+
+    relative_concentration_ratio =
+      safe_divide(
+        phase_share,
+        baseline_share
+      ),
+
+    interpretation_class = dplyr::case_when(
+      is.na(
+        relative_concentration_ratio
+      ) ~
+        "not_estimable",
+      relative_concentration_ratio >= 1.25 ~
+        "higher_than_archaeological_sample",
+      relative_concentration_ratio <= 0.80 ~
+        "lower_than_archaeological_sample",
+      TRUE ~
+        "similar_to_archaeological_sample"
+    ),
+
+    selection_inference_allowed =
+      FALSE
+  )
+
+readr::write_csv(
+  geo_sample_baseline,
+  file.path(
+    csv_dir,
+    "geo_archaeological_sample_baseline.csv"
+  )
+)
+
+readr::write_csv(
+  phase_relative_concentration,
+  file.path(
+    csv_dir,
+    "phase_relative_archaeological_concentration.csv"
+  )
+)
+```
+
+# 08. phase-composition-distance
+
+**目的**：地点そのものの入れ替わりではなく、**立地構成全体が前後の時代でどの程度変化したか**を測る。
+
+Jensen-Shannon divergence、Hellinger distance、Bray-Curtis dissimilarityを並行して保存する。主な説明指標にはJensen-Shannon divergenceを用いる。
+
+```{r c08_phase_composition_distance, eval=TRUE}
+profile_to_matrix <- function(
+  profile_df
+) {
+  phase_levels <- phase_table$phase_code
+
+  group_levels <- sort(
+    unique(
+      profile_df$group_id
+    )
+  )
+
+  expanded <- tidyr::expand_grid(
+    phase_code = phase_levels,
+    group_id = group_levels
+  ) |>
+    dplyr::left_join(
+      profile_df |>
+        dplyr::select(
+          phase_code,
+          group_id,
+          presence_count
+        ),
+      by = c(
+        "phase_code",
+        "group_id"
+      )
+    ) |>
+    dplyr::mutate(
+      presence_count =
+        tidyr::replace_na(
+          presence_count,
+          0L
+        )
+    )
+
+  duplicate_keys <- expanded |>
+    dplyr::count(
+      phase_code,
+      group_id,
+      name = "n_rows"
+    ) |>
+    dplyr::filter(
+      n_rows > 1
+    )
+
+  if (nrow(duplicate_keys) > 0) {
+    stop(
+      "profile_to_matrix(): phase_code × group_id が一意ではありません。 ",
+      "geo unit IDの重複を確認してください。重複件数 = ",
+      nrow(duplicate_keys)
+    )
+  }
+
+  wide <- expanded |>
+    tidyr::pivot_wider(
+      names_from = group_id,
+      values_from = presence_count,
+      values_fill = 0L
+    ) |>
+    dplyr::arrange(
+      match(
+        phase_code,
+        phase_levels
+      )
+    )
+
+  mat <- as.matrix(
+    wide[
+      ,
+      setdiff(
+        names(wide),
+        "phase_code"
+      ),
+      drop = FALSE
+    ]
+  )
+
+  rownames(mat) <- wide$phase_code
+
+  mat
+}
+
+pairwise_profile_distance <- function(
+  profile_df,
+  scheme_name
+) {
+  mat <- profile_to_matrix(
+    profile_df
+  )
+
+  purrr::map_dfr(
+    seq_len(
+      nrow(
+        phase_pair_table
+      )
+    ),
+    function(i) {
+      from_phase <-
+        phase_pair_table$from_phase[i]
+      to_phase <-
+        phase_pair_table$to_phase[i]
+
+      p <- mat[
+        from_phase,
+        ,
+        drop = TRUE
+      ]
+
+      q <- mat[
+        to_phase,
+        ,
+        drop = TRUE
+      ]
+
+      tibble::tibble(
+        scheme = scheme_name,
+        phase_pair =
+          phase_pair_table$phase_pair[i],
+        phase_pair_order =
+          phase_pair_table$phase_pair_order[i],
+        from_phase = from_phase,
+        to_phase = to_phase,
+        js_divergence =
+          js_divergence(
+            p,
+            q
+          ),
+        hellinger_distance =
+          hellinger_distance(
+            p,
+            q
+          ),
+        bray_curtis =
+          bray_curtis_distance(
+            p,
+            q
+          )
+      )
+    }
+  )
+}
+
+adjacent_phase_composition_distance <- dplyr::bind_rows(
+  pairwise_profile_distance(
+    phase_landform_profile,
+    "landform"
+  ),
+  pairwise_profile_distance(
+    phase_watersystem_profile,
+    "watersystem"
+  ),
+  pairwise_profile_distance(
+    phase_unit_basin_profile,
+    "unit_basin"
+  ),
+  pairwise_profile_distance(
+    phase_landscape_profile,
+    "watersystem_x_unit_basin_x_landform"
+  )
+)
+
+# 全7時期のpairwise JSDも保存。
+all_phase_js_distance <- function(
+  profile_df,
+  scheme_name
+) {
+  mat <- profile_to_matrix(
+    profile_df
+  )
+
+  phase_pairs <- t(
+    utils::combn(
+      rownames(mat),
+      2
+    )
+  )
+
+  purrr::map_dfr(
+    seq_len(
+      nrow(
+        phase_pairs
+      )
+    ),
+    function(i) {
+      a <- phase_pairs[i, 1]
+      b <- phase_pairs[i, 2]
+
+      tibble::tibble(
+        scheme = scheme_name,
+        phase_a = a,
+        phase_b = b,
+        js_divergence =
+          js_divergence(
+            mat[a, ],
+            mat[b, ]
+          ),
+        hellinger_distance =
+          hellinger_distance(
+            mat[a, ],
+            mat[b, ]
+          )
+      )
+    }
+  )
+}
+
+all_phase_composition_distance <- dplyr::bind_rows(
+  all_phase_js_distance(
+    phase_landform_profile,
+    "landform"
+  ),
+  all_phase_js_distance(
+    phase_watersystem_profile,
+    "watersystem"
+  ),
+  all_phase_js_distance(
+    phase_unit_basin_profile,
+    "unit_basin"
+  ),
+  all_phase_js_distance(
+    phase_landscape_profile,
+    "watersystem_x_unit_basin_x_landform"
+  )
+)
+
+readr::write_csv(
+  adjacent_phase_composition_distance,
+  file.path(
+    csv_dir,
+    "adjacent_phase_composition_distance.csv"
+  )
+)
+
+readr::write_csv(
+  all_phase_composition_distance,
+  file.path(
+    csv_dir,
+    "all_phase_composition_distance.csv"
+  )
+)
+
+print(
+  adjacent_phase_composition_distance
+)
+```
+
+# 09. correspondence-analysis
+
+**目的**：`phase × landform`の構成表を2次元に縮約し、どの時代がどの地形分類と相対的に近い構成を持つかを探索的に可視化する。
+
+**注意**：同一地点が複数時期に所属し得るため、これは推測統計上の独立性を仮定した検定ではなく、count tableの**記述的ordination**である。
+
+```{r c09_correspondence_analysis, eval=TRUE}
+landform_matrix <- profile_to_matrix(
+  phase_landform_profile
+)
+
+# 全時期で0の列は除外
+landform_matrix <- landform_matrix[
+  ,
+  colSums(
+    landform_matrix
+  ) > 0,
+  drop = FALSE
+]
+
+grand_total <- sum(
+  landform_matrix
+)
+
+if (
+  grand_total > 0 &&
+    nrow(landform_matrix) >= 2 &&
+    ncol(landform_matrix) >= 2
+) {
+  P <- landform_matrix /
+    grand_total
+
+  row_mass <- rowSums(P)
+  col_mass <- colSums(P)
+
+  S <- diag(
+    1 /
+      sqrt(
+        row_mass
+      )
+  ) %*%
+    (
+      P -
+        outer(
+          row_mass,
+          col_mass
+        )
+    ) %*%
+    diag(
+      1 /
+        sqrt(
+          col_mass
+        )
+    )
+
+  ca_svd <- svd(
+    S
+  )
+
+  n_axes <- min(
+    2L,
+    length(
+      ca_svd$d
+    )
+  )
+
+  row_coord <- diag(
+    1 /
+      sqrt(
+        row_mass
+      )
+  ) %*%
+    ca_svd$u[
+      ,
+      seq_len(n_axes),
+      drop = FALSE
+    ] %*%
+    diag(
+      ca_svd$d[
+        seq_len(n_axes)
+      ],
+      nrow = n_axes
+    )
+
+  col_coord <- diag(
+    1 /
+      sqrt(
+        col_mass
+      )
+  ) %*%
+    ca_svd$v[
+      ,
+      seq_len(n_axes),
+      drop = FALSE
+    ] %*%
+    diag(
+      ca_svd$d[
+        seq_len(n_axes)
+      ],
+      nrow = n_axes
+    )
+
+  rownames(row_coord) <- rownames(
+    landform_matrix
+  )
+
+  rownames(col_coord) <- colnames(
+    landform_matrix
+  )
+
+  axis_inertia <- ca_svd$d ^ 2
+  axis_inertia_share <-
+    axis_inertia /
+    sum(
+      axis_inertia
+    )
+
+  row_axis2 <- if (
+    n_axes >= 2
+  ) {
+    row_coord[
+      ,
+      2
+    ]
+  } else {
+    rep(
+      0,
+      nrow(
+        row_coord
+      )
+    )
+  }
+
+  col_axis2 <- if (
+    n_axes >= 2
+  ) {
+    col_coord[
+      ,
+      2
+    ]
+  } else {
+    rep(
+      0,
+      nrow(
+        col_coord
+      )
+    )
+  }
+
+  ca_phase_coordinates <- tibble::tibble(
+    item_type = "phase",
+    item = rownames(
+      row_coord
+    ),
+    axis1 =
+      row_coord[
+        ,
+        1
+      ],
+    axis2 =
+      row_axis2
+  )
+
+  ca_landform_coordinates <- tibble::tibble(
+    item_type = "landform",
+    item = rownames(
+      col_coord
+    ),
+    axis1 =
+      col_coord[
+        ,
+        1
+      ],
+    axis2 =
+      col_axis2
+  ) |>
+    dplyr::left_join(
+      phase_landform_profile |>
+        dplyr::distinct(
+          group_id,
+          group_label
+        ) |>
+        dplyr::rename(
+          item = group_id
+        ),
+      by = "item"
+    ) |>
+    dplyr::mutate(
+      item_display =
+        dplyr::coalesce(
+          group_label,
+          item
+        )
+    )
+
+  ca_inertia <- tibble::tibble(
+    axis = seq_along(
+      axis_inertia
+    ),
+    singular_value =
+      ca_svd$d,
+    inertia =
+      axis_inertia,
+    inertia_share =
+      axis_inertia_share
+  )
+
+} else {
+  ca_phase_coordinates <-
+    tibble::tibble()
+
+  ca_landform_coordinates <-
+    tibble::tibble()
+
+  ca_inertia <-
+    tibble::tibble()
+}
+
+readr::write_csv(
+  ca_phase_coordinates,
+  file.path(
+    csv_dir,
+    "ca_phase_coordinates.csv"
+  )
+)
+
+readr::write_csv(
+  ca_landform_coordinates,
+  file.path(
+    csv_dir,
+    "ca_landform_coordinates.csv"
+  )
+)
+
+readr::write_csv(
+  ca_inertia,
+  file.path(
+    csv_dir,
+    "ca_inertia.csv"
+  )
+)
+```
+
+# 10. landscape-unit-trajectories
+
+**目的**：地点ではなく、`watersystem × unit basin × landform`を分析単位として、各時代に観測された遺跡記録の継続・中断・再出現を記述する。
+
+これは**landscape unit自体が利用された／されなかったことの確定判定ではなく、そのunitに属する遺跡記録が各時代に存在するか**を表す。
+
+```{r c10_landscape_unit_trajectories, eval=TRUE}
+landscape_phase_counts <- phase_landscape_profile |>
+  dplyr::select(
+    phase_code,
+    group_id,
+    group_label,
+    presence_count,
+    phase_share
+  ) |>
+  tidyr::complete(
+    group_id,
+    phase_code = phase_cols,
+    fill = list(
+      presence_count = 0L,
+      phase_share = 0
+    )
+  ) |>
+  dplyr::left_join(
+    phase_table |>
+      dplyr::select(
+        phase_code,
+        phase_order
+      ),
+    by = "phase_code"
+  ) |>
+  dplyr::group_by(
+    group_id
+  ) |>
+  tidyr::fill(
+    group_label,
+    .direction = "downup"
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::arrange(
+    group_id,
+    phase_order
+  )
+
+landscape_unit_trajectory <- landscape_phase_counts |>
+  dplyr::group_by(
+    group_id,
+    group_label
+  ) |>
+  dplyr::group_modify(
+    ~ {
+      x <- .x |>
+        dplyr::arrange(
+          phase_order
+        )
+
+      run_metrics <- binary_run_metrics(
+        x$presence_count > 0
+      )
+
+      total_presence_records <- sum(
+        x$presence_count
+      )
+
+      peak_idx <- if (
+        total_presence_records > 0
+      ) {
+        which.max(
+          x$presence_count
+        )
+      } else {
+        NA_integer_
+      }
+
+      tibble::tibble(
+        total_presence_records =
+          total_presence_records,
+        mean_presence_count =
+          mean(
+            x$presence_count
+          ),
+        sd_presence_count =
+          stats::sd(
+            x$presence_count
+          ),
+        max_presence_count =
+          max(
+            x$presence_count
+          ),
+        peak_phase = if (
+          is.na(
+            peak_idx
+          )
+        ) {
+          NA_character_
+        } else {
+          x$phase_code[
+            peak_idx
+          ]
+        },
+        peak_phase_count = if (
+          is.na(
+            peak_idx
+          )
+        ) {
+          NA_integer_
+        } else {
+          x$presence_count[
+            peak_idx
+          ]
+        },
+        mean_phase_share =
+          mean(
+            x$phase_share
+          ),
+        max_phase_share =
+          max(
+            x$phase_share
+          ),
+        active_phase_count =
+          run_metrics$active_phase_count,
+        run_count =
+          run_metrics$run_count,
+        longest_run_length =
+          run_metrics$longest_run_length,
+        gap_count =
+          run_metrics$gap_count,
+        gap_phase_count =
+          run_metrics$gap_phase_count,
+        first_active_phase_order =
+          run_metrics$first_active_phase_order,
+        last_active_phase_order =
+          run_metrics$last_active_phase_order,
+        trajectory_class =
+          classify_geo_trajectory(
+            run_metrics$active_phase_count,
+            run_metrics$longest_run_length,
+            run_metrics$gap_count
+          )
+      )
+    }
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(
+    interpretation_status =
+      dplyr::if_else(
+        total_presence_records >=
+          trajectory_min_total_presence_records,
+        "eligible",
+        "low_n_descriptive_only"
+      )
+  )
+
+# 各unit内で7時期のrecordがどの時代に集中するか。
+landscape_unit_temporal_composition <- landscape_phase_counts |>
+  dplyr::group_by(
+    group_id
+  ) |>
+  dplyr::mutate(
+    unit_total_presence_records =
+      sum(
+        presence_count
+      ),
+    within_unit_temporal_share =
+      safe_divide(
+        presence_count,
+        unit_total_presence_records
+      )
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::left_join(
+    landscape_unit_trajectory |>
+      dplyr::select(
+        group_id,
+        trajectory_class,
+        interpretation_status
+      ),
+    by = "group_id"
+  )
+
+readr::write_csv(
+  landscape_phase_counts,
+  file.path(
+    csv_dir,
+    "landscape_phase_counts.csv"
+  )
+)
+
+readr::write_csv(
+  landscape_unit_trajectory,
+  file.path(
+    csv_dir,
+    "landscape_unit_trajectory.csv"
+  )
+)
+
+readr::write_csv(
+  landscape_unit_temporal_composition,
+  file.path(
+    csv_dir,
+    "landscape_unit_temporal_composition.csv"
+  )
+)
+```
+
+# 11. transition-geography
+
+**目的**：既往の地点Transitionを自然地理属性で再集計し、各画期の`continue / drop / new`がどの地形・流域に偏って観測されるかを評価する。
+
+0→0はactive transitionの分母から除外する。
+
+```{r c11_transition_geography, eval=TRUE}
+transition_long <- place_phase_long |>
+  dplyr::arrange(
+    place_id,
+    phase_order
+  ) |>
+  dplyr::group_by(
+    place_id
+  ) |>
+  dplyr::mutate(
+    next_phase_code =
+      dplyr::lead(
+        phase_code
+      ),
+    next_presence =
+      dplyr::lead(
+        presence
+      )
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::filter(
+    !is.na(
+      next_phase_code
+    )
+  ) |>
+  dplyr::mutate(
+    phase_pair = paste0(
+      phase_code,
+      "->",
+      next_phase_code
+    ),
+    phase_pair_order =
+      phase_order,
+    transition = dplyr::case_when(
+      presence == 1L &
+        next_presence == 1L ~
+        "continue",
+      presence == 1L &
+        next_presence == 0L ~
+        "drop",
+      presence == 0L &
+        next_presence == 1L ~
+        "new",
+      TRUE ~
+        "apparent_absence_continue"
+    )
+  )
+
+active_transition_long <- transition_long |>
+  dplyr::filter(
+    transition %in%
+      c(
+        "continue",
+        "drop",
+        "new"
+      )
+  )
+
+build_transition_geo_profile <- function(
+  transition_df,
+  group_id_col,
+  group_label_col,
+  scheme_name
+) {
+  known <- transition_df |>
+    dplyr::filter(
+      !is.na(
+        .data[[group_id_col]]
+      )
+    )
+
+  # phase pair全体のknown geography母集団
+  active_totals <- known |>
+    dplyr::group_by(
+      phase_pair,
+      phase_pair_order
+    ) |>
+    dplyr::summarise(
+      active_total_known_geo =
+        dplyr::n(),
+      .groups = "drop"
+    )
+
+  # 各group内でのtransition composition
+  group_counts <- known |>
+    dplyr::count(
+      phase_pair,
+      phase_pair_order,
+      group_id =
+        .data[[group_id_col]],
+      group_label =
+        .data[[group_label_col]],
+      transition,
+      name = "n_places"
+    ) |>
+    dplyr::group_by(
+      phase_pair,
+      phase_pair_order,
+      group_id,
+      group_label
+    ) |>
+    dplyr::mutate(
+      group_active_total =
+        sum(
+          n_places
+        ),
+      transition_composition_within_group =
+        n_places /
+        group_active_total
+    ) |>
+    dplyr::ungroup()
+
+  # eventから見た地理構成
+  event_totals <- known |>
+    dplyr::count(
+      phase_pair,
+      phase_pair_order,
+      transition,
+      name = "event_total_known_geo"
+    )
+
+  event_geo <- group_counts |>
+    dplyr::left_join(
+      event_totals,
+      by = c(
+        "phase_pair",
+        "phase_pair_order",
+        "transition"
+      )
+    ) |>
+    dplyr::left_join(
+      active_totals,
+      by = c(
+        "phase_pair",
+        "phase_pair_order"
+      )
+    ) |>
+    dplyr::mutate(
+      scheme = scheme_name,
+      event_geo_share =
+        n_places /
+        event_total_known_geo,
+      active_geo_share =
+        group_active_total /
+        active_total_known_geo,
+      event_share_minus_active_geo_share =
+        event_geo_share -
+        active_geo_share,
+      relative_event_concentration_ratio =
+        safe_divide(
+          event_geo_share,
+          active_geo_share
+        ),
+      interpretation_status =
+        dplyr::if_else(
+          group_active_total >=
+            geo_min_places,
+          "eligible",
+          "low_n_descriptive_only"
+        ),
+      selection_inference_allowed =
+        FALSE
+    )
+
+  event_geo
+}
+
+transition_by_landform <- build_transition_geo_profile(
+  active_transition_long,
+  "landform_unit_id",
+  "landform_unit_label",
+  "landform"
+)
+
+transition_by_watersystem <- build_transition_geo_profile(
+  active_transition_long,
+  "watersystem_unit_id",
+  "watersystem_unit_label",
+  "watersystem"
+)
+
+transition_by_unit_basin <- build_transition_geo_profile(
+  active_transition_long,
+  "basin_unit_id",
+  "basin_unit_label",
+  "unit_basin"
+)
+
+transition_by_landscape <- build_transition_geo_profile(
+  active_transition_long,
+  "landscape_unit_id",
+  "landscape_unit_label",
+  "watersystem_x_unit_basin_x_landform"
+)
+
+transition_geography_all <- dplyr::bind_rows(
+  transition_by_landform,
+  transition_by_watersystem,
+  transition_by_unit_basin,
+  transition_by_landscape
+)
+
+# retention / drop among previously-present places
+transition_retention_by_geography <- transition_geography_all |>
+  dplyr::filter(
+    transition %in%
+      c(
+        "continue",
+        "drop"
+      )
+  ) |>
+  dplyr::group_by(
+    scheme,
+    phase_pair,
+    phase_pair_order,
+    group_id,
+    group_label
+  ) |>
+  dplyr::summarise(
+    prior_present_total =
+      sum(
+        n_places
+      ),
+    continue_count =
+      sum(
+        n_places[
+          transition ==
+            "continue"
+        ]
+      ),
+    drop_count =
+      sum(
+        n_places[
+          transition ==
+            "drop"
+        ]
+      ),
+    retention_rate =
+      safe_divide(
+        continue_count,
+        prior_present_total
+      ),
+    drop_rate_given_prior_presence =
+      safe_divide(
+        drop_count,
+        prior_present_total
+      ),
+    interpretation_status =
+      dplyr::if_else(
+        prior_present_total >=
+          geo_min_places,
+        "eligible",
+        "low_n_descriptive_only"
+      ),
+    .groups = "drop"
+  )
+
+readr::write_csv(
+  transition_long,
+  file.path(
+    csv_dir,
+    "place_phase_transition_long.csv"
+  )
+)
+
+readr::write_csv(
+  active_transition_long,
+  file.path(
+    csv_dir,
+    "active_transition_long.csv"
+  )
+)
+
+readr::write_csv(
+  transition_by_landform,
+  file.path(
+    csv_dir,
+    "transition_by_landform.csv"
+  )
+)
+
+readr::write_csv(
+  transition_by_watersystem,
+  file.path(
+    csv_dir,
+    "transition_by_watersystem.csv"
+  )
+)
+
+readr::write_csv(
+  transition_by_unit_basin,
+  file.path(
+    csv_dir,
+    "transition_by_unit_basin.csv"
+  )
+)
+
+readr::write_csv(
+  transition_by_landscape,
+  file.path(
+    csv_dir,
+    "transition_by_landscape.csv"
+  )
+)
+
+readr::write_csv(
+  transition_geography_all,
+  file.path(
+    csv_dir,
+    "transition_geography_all.csv"
+  )
+)
+
+readr::write_csv(
+  transition_retention_by_geography,
+  file.path(
+    csv_dir,
+    "transition_retention_by_geography.csv"
+  )
+)
+```
+
+# 12. optional-activity-domain-geography
+
+**目的**：入力CSVにactivity-domain phase flagが存在する場合だけ、地形・水系との交差表を追加する。通常の`13Tokyo_chronology_gsi_landform.csv`でも失敗せず完結する。
+
+```{r c12_optional_activity_domain_geography, eval=TRUE}
+activity_domains <- c(
+  "general_activity",
+  "monument",
+  "institutional",
+  "production"
+)
+
+activity_flag_map <- lapply(
+  activity_domains,
+  function(domain_name) {
+    stats::setNames(
+      paste0(
+        "activity_",
+        domain_name,
+        "_",
+        phase_cols
+      ),
+      phase_cols
+    )
+  }
+)
+
+names(activity_flag_map) <-
+  activity_domains
+
+activity_required_cols <- unlist(
+  activity_flag_map,
+  use.names = FALSE
+)
+
+activity_phase_flags_available <- all(
+  activity_required_cols %in%
+    names(
+      analysis_places
+    )
+)
+
+if (activity_phase_flags_available) {
+  activity_geo_long <- purrr::map_dfr(
+    activity_domains,
+    function(domain_name) {
+      flag_map <-
+        activity_flag_map[[
+          domain_name
+        ]]
+
+      analysis_places |>
+        dplyr::select(
+          place_id,
+          landform_unit_id,
+          landform_unit_label,
+          watersystem_unit_id,
+          watersystem_unit_label,
+          basin_unit_id,
+          basin_unit_label,
+          landscape_unit_id,
+          landscape_unit_label,
+          dplyr::all_of(
+            unname(
+              flag_map
+            )
+          )
+        ) |>
+        tidyr::pivot_longer(
+          cols = dplyr::all_of(
+            unname(
+              flag_map
+            )
+          ),
+          names_to = "flag_col",
+          values_to = "domain_presence_raw"
+        ) |>
+        dplyr::mutate(
+          phase_code =
+            names(flag_map)[
+              match(
+                flag_col,
+                unname(
+                  flag_map
+                )
+              )
+            ],
+          activity_domain =
+            domain_name,
+          domain_presence_num =
+            suppressWarnings(
+              readr::parse_number(
+                as.character(
+                  domain_presence_raw
+                ),
+                na = c(
+                  "",
+                  "NA"
+                )
+              )
+            ),
+          domain_presence =
+            dplyr::case_when(
+              is.na(
+                domain_presence_num
+              ) ~
+                NA_integer_,
+              domain_presence_num > 0 ~
+                1L,
+              TRUE ~
+                0L
+            )
+        ) |>
+        dplyr::left_join(
+          phase_table,
+          by = "phase_code"
+        )
+    }
+  )
+
+  activity_domain_geo_summary <-
+    dplyr::bind_rows(
+      activity_geo_long |>
+        dplyr::filter(
+          domain_presence == 1L,
+          !is.na(
+            landform_unit_id
+          )
+        ) |>
+        dplyr::count(
+          activity_domain,
+          phase_code,
+          phase_order,
+          scheme = "landform",
+          group_id =
+            landform_unit_id,
+          group_label =
+            landform_unit_label,
+          name =
+            "presence_count"
+        ),
+
+      activity_geo_long |>
+        dplyr::filter(
+          domain_presence == 1L,
+          !is.na(
+            watersystem_unit_id
+          )
+        ) |>
+        dplyr::count(
+          activity_domain,
+          phase_code,
+          phase_order,
+          scheme = "watersystem",
+          group_id =
+            watersystem_unit_id,
+          group_label =
+            watersystem_unit_label,
+          name =
+            "presence_count"
+        ),
+
+      activity_geo_long |>
+        dplyr::filter(
+          domain_presence == 1L,
+          !is.na(
+            landscape_unit_id
+          )
+        ) |>
+        dplyr::count(
+          activity_domain,
+          phase_code,
+          phase_order,
+          scheme =
+            "watersystem_x_unit_basin_x_landform",
+          group_id =
+            landscape_unit_id,
+          group_label =
+            landscape_unit_label,
+          name =
+            "presence_count"
+        )
+    ) |>
+    dplyr::group_by(
+      activity_domain,
+      phase_code,
+      phase_order,
+      scheme
+    ) |>
+    dplyr::mutate(
+      phase_domain_total =
+        sum(
+          presence_count
+        ),
+      phase_domain_share =
+        presence_count /
+        phase_domain_total
+    ) |>
+    dplyr::ungroup()
+
+} else {
+  activity_geo_long <- tibble::tibble(
+    place_id = character(),
+    landform_unit_id = character(),
+    landform_unit_label = character(),
+    watersystem_unit_id = character(),
+    watersystem_unit_label = character(),
+    basin_unit_id = character(),
+    basin_unit_label = character(),
+    landscape_unit_id = character(),
+    landscape_unit_label = character(),
+    flag_col = character(),
+    domain_presence_raw = character(),
+    phase_code = character(),
+    activity_domain = character(),
+    domain_presence_num = double(),
+    domain_presence = integer(),
+    phase_order = integer(),
+    phase_label_ja = character(),
+    phase_label_en = character()
+  )
+
+  activity_domain_geo_summary <- tibble::tibble(
+    activity_domain = character(),
+    phase_code = character(),
+    phase_order = integer(),
+    scheme = character(),
+    group_id = character(),
+    group_label = character(),
+    presence_count = integer(),
+    phase_domain_total = integer(),
+    phase_domain_share = double()
+  )
+}
+
+activity_domain_availability <- tibble::tibble(
+  activity_phase_flags_available =
+    activity_phase_flags_available,
+  n_activity_flag_columns_found =
+    sum(
+      activity_required_cols %in%
+        names(
+          analysis_places
+        )
+    ),
+  n_activity_flag_columns_required =
+    length(
+      activity_required_cols
+    )
+)
+
+readr::write_csv(
+  activity_domain_availability,
+  file.path(
+    csv_dir,
+    "activity_domain_availability.csv"
+  )
+)
+
+readr::write_csv(
+  activity_domain_geo_summary,
+  file.path(
+    csv_dir,
+    "activity_domain_geo_summary.csv"
+  )
+)
+
+print(
+  activity_domain_availability
+)
+```
+
+# 13. figures
+
+**目的**：現在のデータだけで判断できる立地構成・変化を、後続レポートに再利用しやすい図として出力する。
+
+```{r c13_figures, eval=TRUE}
+# ------------------------------------------------------------------
+# A. phase × landform composition
+# ------------------------------------------------------------------
+p_landform_composition <- ggplot2::ggplot(
+  phase_landform_profile |>
+    dplyr::mutate(
+      phase_code =
+        factor(
+          phase_code,
+          levels =
+            phase_cols
+        )
+    ),
+  ggplot2::aes(
+    x = phase_code,
+    y = phase_share,
+    fill = group_label
+  )
+) +
+  ggplot2::geom_col() +
+  ggplot2::labs(
+    title =
+      "時代別の観測遺跡地点・地形構成",
+    subtitle =
+      "各時代の地形判定済みpresence地点を100%として表示",
+    x = "Phase",
+    y = "Share within phase",
+    fill = "Landform"
+  ) +
+  ggplot2::theme_minimal()
+
+# ------------------------------------------------------------------
+# B. landform relative archaeological concentration
+# ------------------------------------------------------------------
+landform_relative_plot <- phase_relative_concentration |>
+  dplyr::filter(
+    scheme ==
+      "landform"
+  ) |>
+  dplyr::mutate(
+    phase_code =
+      factor(
+        phase_code,
+        levels =
+          phase_cols
+      )
+  )
+
+p_landform_relative <- ggplot2::ggplot(
+  landform_relative_plot,
+  ggplot2::aes(
+    x = phase_code,
+    y = group_label,
+    fill =
+      phase_share_minus_baseline
+  )
+) +
+  ggplot2::geom_tile() +
+  ggplot2::geom_text(
+    ggplot2::aes(
+      label = sprintf(
+        "%+.1f",
+        100 *
+          phase_share_minus_baseline
+      )
+    ),
+    size = 2.6
+  ) +
+  ggplot2::scale_fill_gradient2(
+    midpoint = 0
+  ) +
+  ggplot2::labs(
+    title =
+      "時代別地形構成の相対偏在",
+    subtitle =
+      "値は全分析遺跡地点の地形構成との差（percentage point）。selection ratioではない",
+    x = "Phase",
+    y = "Landform",
+    fill =
+      "Phase share -\nsample baseline"
+  ) +
+  ggplot2::theme_minimal()
+
+# ------------------------------------------------------------------
+# C. watersystem composition
+# ------------------------------------------------------------------
+p_watersystem_composition <- ggplot2::ggplot(
+  phase_watersystem_profile |>
+    dplyr::mutate(
+      phase_code =
+        factor(
+          phase_code,
+          levels =
+            phase_cols
+        )
+    ),
+  ggplot2::aes(
+    x = phase_code,
+    y = phase_share,
+    fill = group_label
+  )
+) +
+  ggplot2::geom_col() +
+  ggplot2::labs(
+    title =
+      "時代別の観測遺跡地点・水系構成",
+    subtitle =
+      "各時代のW07水系判定済みpresence地点を100%として表示",
+    x = "Phase",
+    y = "Share within phase",
+    fill = "Watersystem"
+  ) +
+  ggplot2::theme_minimal()
+
+# ------------------------------------------------------------------
+# D. adjacent-phase composition distance
+# ------------------------------------------------------------------
+p_adjacent_distance <- ggplot2::ggplot(
+  adjacent_phase_composition_distance |>
+    dplyr::mutate(
+      phase_pair =
+        factor(
+          phase_pair,
+          levels =
+            phase_pair_table$phase_pair
+        )
+    ),
+  ggplot2::aes(
+    x = phase_pair,
+    y = js_divergence,
+    group = scheme,
+    linetype = scheme
+  )
+) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point(
+    size = 2
+  ) +
+  ggplot2::labs(
+    title =
+      "隣接時代間の立地構成変化",
+    subtitle =
+      "Jensen-Shannon divergence; 0に近いほど構成が類似",
+    x = "Phase pair",
+    y = "Jensen-Shannon divergence",
+    linetype = "Geography"
+  ) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.x =
+      ggplot2::element_text(
+        angle = 45,
+        hjust = 1
+      )
+  )
+
+# ------------------------------------------------------------------
+# E. correspondence analysis
+# ------------------------------------------------------------------
+if (
+  nrow(
+    ca_phase_coordinates
+  ) > 0 &&
+    nrow(
+      ca_landform_coordinates
+    ) > 0
+) {
+  ca_plot_df <- dplyr::bind_rows(
+    ca_phase_coordinates |>
+      dplyr::mutate(
+        item_display = item
+      ),
+    ca_landform_coordinates |>
+      dplyr::select(
+        item_type,
+        item,
+        axis1,
+        axis2,
+        item_display
+      )
+  )
+
+  axis1_pct <- 100 *
+    ca_inertia$inertia_share[
+      ca_inertia$axis == 1
+    ][1]
+
+  axis2_pct <- if (
+    any(
+      ca_inertia$axis == 2
+    )
+  ) {
+    100 *
+      ca_inertia$inertia_share[
+        ca_inertia$axis == 2
+      ][1]
+  } else {
+    0
+  }
+
+  p_ca <- ggplot2::ggplot(
+    ca_plot_df,
+    ggplot2::aes(
+      x = axis1,
+      y = axis2,
+      shape = item_type
+    )
+  ) +
+    ggplot2::geom_point(
+      size = 2.5
+    ) +
+    ggplot2::geom_text(
+      ggplot2::aes(
+        label = item_display
+      ),
+      hjust = -0.08,
+      size = 3,
+      check_overlap = TRUE
+    ) +
+    ggplot2::geom_hline(
+      yintercept = 0,
+      linewidth = 0.2
+    ) +
+    ggplot2::geom_vline(
+      xintercept = 0,
+      linewidth = 0.2
+    ) +
+    ggplot2::labs(
+      title =
+        "Phase × landform correspondence analysis",
+      subtitle =
+        "記述的ordination。phaseとlandformの相対的位置を表示",
+      x = paste0(
+        "Axis 1 (",
+        round(
+          axis1_pct,
+          1
+        ),
+        "%)"
+      ),
+      y = paste0(
+        "Axis 2 (",
+        round(
+          axis2_pct,
+          1
+        ),
+        "%)"
+      ),
+      shape = "Item"
+    ) +
+    ggplot2::theme_minimal()
+
+} else {
+  p_ca <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "text",
+      x = 0,
+      y = 0,
+      label =
+        "Correspondence analysis unavailable"
+    ) +
+    ggplot2::theme_void()
+}
+
+# ------------------------------------------------------------------
+# F. transition × landform
+# ------------------------------------------------------------------
+transition_landform_plot <- transition_by_landform |>
+  dplyr::mutate(
+    phase_pair =
+      factor(
+        phase_pair,
+        levels =
+          phase_pair_table$phase_pair
+      ),
+    transition =
+      factor(
+        transition,
+        levels = c(
+          "continue",
+          "drop",
+          "new"
+        )
+      )
+  )
+
+p_transition_landform <- ggplot2::ggplot(
+  transition_landform_plot,
+  ggplot2::aes(
+    x = phase_pair,
+    y = group_label,
+    fill =
+      event_share_minus_active_geo_share
+  )
+) +
+  ggplot2::geom_tile() +
+  ggplot2::facet_wrap(
+    ~ transition,
+    ncol = 1
+  ) +
+  ggplot2::scale_fill_gradient2(
+    midpoint = 0
+  ) +
+  ggplot2::labs(
+    title =
+      "Active transitionの地形的偏在",
+    subtitle =
+      "各eventの地形構成 − 同phase pairのactive transition全体の地形構成",
+    x = "Phase pair",
+    y = "Landform",
+    fill =
+      "Event share -\nactive baseline"
+  ) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.x =
+      ggplot2::element_text(
+        angle = 45,
+        hjust = 1
+      )
+  )
+
+# ------------------------------------------------------------------
+# G. landscape-unit trajectory heatmap
+# ------------------------------------------------------------------
+top_trajectory_units <- landscape_unit_trajectory |>
+  dplyr::filter(
+    total_presence_records >=
+      trajectory_min_total_presence_records
+  ) |>
+  dplyr::slice_max(
+    total_presence_records,
+    n = trajectory_top_n,
+    with_ties = FALSE
+  ) |>
+  dplyr::pull(
+    group_id
+  )
+
+trajectory_plot_df <- landscape_unit_temporal_composition |>
+  dplyr::filter(
+    group_id %in%
+      top_trajectory_units
+  ) |>
+  dplyr::mutate(
+    phase_code =
+      factor(
+        phase_code,
+        levels =
+          phase_cols
+      ),
+    group_label = stringr::str_trunc(
+      group_label,
+      width = 60
+    )
+  )
+
+p_landscape_trajectory <- ggplot2::ggplot(
+  trajectory_plot_df,
+  ggplot2::aes(
+    x = phase_code,
+    y = group_label,
+    fill =
+      within_unit_temporal_share
+  )
+) +
+  ggplot2::geom_tile() +
+  ggplot2::labs(
+    title =
+      "主要landscape unitの時代別記録構成",
+    subtitle = paste0(
+      "total presence records上位",
+      trajectory_top_n,
+      " unit"
+    ),
+    x = "Phase",
+    y = "Watersystem × basin × landform",
+    fill =
+      "Within-unit\ntemporal share"
+  ) +
+  ggplot2::theme_minimal()
+
+figure_objects <- list(
+  figure_phase_landform_composition =
+    p_landform_composition,
+  figure_phase_landform_relative_concentration =
+    p_landform_relative,
+  figure_phase_watersystem_composition =
+    p_watersystem_composition,
+  figure_adjacent_phase_geography_distance =
+    p_adjacent_distance,
+  figure_phase_landform_correspondence_analysis =
+    p_ca,
+  figure_transition_landform_relative_pattern =
+    p_transition_landform,
+  figure_landscape_unit_trajectory =
+    p_landscape_trajectory
+)
+
+purrr::iwalk(
+  figure_objects,
+  function(plot_obj, file_stem) {
+    ggplot2::ggsave(
+      filename = file.path(
+        figure_dir,
+        paste0(
+          file_stem,
+          ".png"
+        )
+      ),
+      plot = plot_obj,
+      width = 11,
+      height = 7,
+      dpi = 300,
+      bg = "white"
+    )
+  }
+)
+
+print(
+  p_landform_composition
+)
+
+print(
+  p_adjacent_distance
+)
+
+print(
+  p_transition_landform
+)
+```
+
+# 14. gpkg-export
+
+**目的**：追加polygonがない現段階でも、地点・地点×時期・active transitionをQGISへ受け渡せる形にする。
+
+```{r c14_gpkg_export, eval=TRUE}
+if (file.exists(arch_geo_gpkg)) {
+  file.remove(
+    arch_geo_gpkg
+  )
+}
+
+analysis_places_sf <- sf::st_as_sf(
+  analysis_places,
+  coords = c(
+    "lon_numeric",
+    "lat_numeric"
+  ),
+  crs = 4326,
+  remove = FALSE
+)
+
+place_phase_presence_sf <- analysis_places_sf |>
+  dplyr::select(
+    place_id
+  ) |>
+  dplyr::inner_join(
+    place_phase_long,
+    by = "place_id"
+  )
+
+active_transition_sf <- analysis_places_sf |>
+  dplyr::select(
+    place_id
+  ) |>
+  dplyr::inner_join(
+    active_transition_long,
+    by = "place_id"
+  )
+
+gpkg_write_status <- tibble::tibble(
+  layer = c(
+    "analysis_places",
+    "place_phase_presence",
+    "active_transition"
+  ),
+  written = c(
+    write_gpkg_layer_safe(
+      analysis_places_sf,
+      arch_geo_gpkg,
+      "analysis_places"
+    ),
+    write_gpkg_layer_safe(
+      place_phase_presence_sf,
+      arch_geo_gpkg,
+      "place_phase_presence"
+    ),
+    write_gpkg_layer_safe(
+      active_transition_sf,
+      arch_geo_gpkg,
+      "active_transition"
+    )
+  )
+)
+
+# GPKG attribute tables
+write_gpkg_attribute_table(
+  phase_landform_profile,
+  arch_geo_gpkg,
+  "phase_landform_profile",
+  "Phase-by-landform observed archaeological-site composition"
+)
+
+write_gpkg_attribute_table(
+  phase_watersystem_profile,
+  arch_geo_gpkg,
+  "phase_watersystem_profile",
+  "Phase-by-watersystem observed archaeological-site composition"
+)
+
+write_gpkg_attribute_table(
+  phase_landscape_profile,
+  arch_geo_gpkg,
+  "phase_landscape_profile",
+  "Phase-by-watersystem-basin-landform observed archaeological-site composition"
+)
+
+write_gpkg_attribute_table(
+  adjacent_phase_composition_distance,
+  arch_geo_gpkg,
+  "phase_composition_distance",
+  "Descriptive distance between adjacent phase geography profiles"
+)
+
+write_gpkg_attribute_table(
+  landscape_unit_trajectory,
+  arch_geo_gpkg,
+  "landscape_unit_trajectory",
+  "Observed archaeological-record trajectory by landscape unit"
+)
+
+write_gpkg_attribute_table(
+  transition_retention_by_geography,
+  arch_geo_gpkg,
+  "transition_retention_geo",
+  "Continue/drop rates by geography"
+)
+
+write_gpkg_attribute_table(
+  analysis_scope_policy,
+  arch_geo_gpkg,
+  "analysis_scope_policy",
+  "Interpretation limits and future-data requirements"
+)
+
+readr::write_csv(
+  gpkg_write_status,
+  file.path(
+    csv_dir,
+    "gpkg_write_status.csv"
+  )
+)
+
+print(
+  gpkg_write_status
+)
+```
+
+# 15. future-analysis-handoff
+
+**目的**：次段階でavailable landscape、DEM、河川geometry、調査強度を追加する際、現在の分析をやり直さずjoinできるようにtemplateとmanifestを保存する。
+
+```{r c15_future_analysis_handoff, eval=TRUE}
+future_data_requirements <- tibble::tribble(
+  ~priority, ~data_type, ~current_status, ~preferred_format, ~join_or_overlay_basis, ~enables_analysis, ~notes,
+  "required_for_selection",
+  "GSI landform polygon or categorical raster",
+  "not_in_current_input_as_area",
+  "GPKG/GeoTIFF",
+  "spatial overlay",
+  "available area by landform; selection ratio; chi-square expected counts; resource selection",
+  "現在の地点属性だけでは各地形のavailable areaを算出できない。",
+  "required_for_selection",
+  "W07 unit-basin polygon",
+  "not_in_current_input_as_geometry",
+  "GPKG",
+  "watersystem_code + unit_basin_code / spatial overlay",
+  "available area within basin; basin-normalised selection",
+  "現行CSVにはcodeのみ存在。",
+  "required_for_selection",
+  "study-area polygon",
+  "not_explicitly_supplied",
+  "GPKG",
+  "spatial overlay",
+  "denominator definition",
+  "東京都全体・島嶼除外等の研究範囲を明示する。",
+  "high",
+  "river line geometry",
+  "attribute only",
+  "GPKG",
+  "spatial nearest-feature",
+  "distance to river; main/tributary distinction; confluence distance",
+  "現行CSVにはriver name/codeのみ存在。",
+  "high",
+  "DEM",
+  "not_in_current_input",
+  "GeoTIFF",
+  "raster extraction",
+  "elevation; slope; relative elevation; TPI; local relief; valley distance",
+  "selection modelの連続地形説明変数。",
+  "high",
+  "archaeological survey/excavation coverage",
+  "not_in_current_input",
+  "GPKG/CSV",
+  "place or spatial overlay",
+  "survey-effort correction",
+  "遺跡密度と調査密度を分離するため重要。",
+  "medium",
+  "spring locations",
+  "not_in_current_input",
+  "GPKG",
+  "distance calculation",
+  "water-access model",
+  "湧水との関係。",
+  "medium",
+  "palaeochannel / old river course",
+  "not_in_current_input",
+  "GPKG",
+  "phase-specific overlay",
+  "palaeolandscape model",
+  "現在河川との距離を先史時代へ直接外挿しないため。",
+  "medium",
+  "palaeoshoreline / Holocene shoreline",
+  "not_in_current_input",
+  "GPKG",
+  "phase-specific overlay",
+  "Jomon/Yayoi lowland context",
+  "低地・海岸部の時期別復元。"
+)
+
+future_join_key_dictionary <- tibble::tribble(
+  ~entity, ~key_or_field, ~current_available, ~future_use,
+  "place",
+  "place_id / JASID",
+  TRUE,
+  "地点別DEM・河川距離・調査強度等のjoin",
+  "place",
+  "Lon / Lat",
+  TRUE,
+  "spatial overlay",
+  "landform",
+  "gsi_landform_code",
+  TRUE,
+  "地形面積tableとのjoin",
+  "landform",
+  "gsi_landform_class",
+  TRUE,
+  "表示・集約",
+  "watersystem",
+  "watersystem_code",
+  TRUE,
+  "W07 polygonとのjoin",
+  "unit_basin",
+  "watersystem_code + unit_basin_code",
+  TRUE,
+  "W07単位流域polygonとのjoin",
+  "landscape",
+  "landscape_unit_id",
+  TRUE,
+  "available-area集計後のlandscape selection tableとのjoin",
+  "phase",
+  "phase_code",
+  TRUE,
+  "時期別availability/palaeolandscapeとのjoin"
+)
+
+# available areaが追加されたらここへ値を埋める。
+future_landscape_availability_template <- geo_unit_dictionary |>
+  dplyr::filter(
+    scheme %in%
+      c(
+        "landform",
+        "unit_basin",
+        "watersystem_x_unit_basin_x_landform"
+      )
+  ) |>
+  dplyr::mutate(
+    available_area_m2 =
+      NA_real_,
+    study_area_fraction =
+      NA_real_,
+    availability_source =
+      NA_character_,
+    availability_version =
+      NA_character_
+  )
+
+# DEM・河川geometry等から地点別covariateを抽出した後、
+# place_idで現在のplace_phase_longにjoinする。
+future_place_covariate_template <- analysis_places |>
+  dplyr::transmute(
+    place_id,
+    Lon =
+      lon_numeric,
+    Lat =
+      lat_numeric,
+    elevation_m =
+      NA_real_,
+    slope_deg =
+      NA_real_,
+    relative_elevation_m =
+      NA_real_,
+    tpi_100m =
+      NA_real_,
+    tpi_250m =
+      NA_real_,
+    local_relief_250m =
+      NA_real_,
+    distance_valley_bottom_m =
+      NA_real_,
+    distance_valley_edge_m =
+      NA_real_,
+    distance_nearest_river_m =
+      NA_real_,
+    nearest_river_order =
+      NA_real_,
+    distance_main_channel_m =
+      NA_real_,
+    distance_confluence_m =
+      NA_real_,
+    survey_effort =
+      NA_real_
+  )
+
+# 将来のRSF / case-controlモデルへ受け渡す最小table。
+future_phase_environment_model_input <- place_phase_long |>
+  dplyr::select(
+    place_id,
+    phase_code,
+    phase_order,
+    presence,
+    landform_unit_id,
+    landform_unit_label,
+    watersystem_unit_id,
+    watersystem_unit_label,
+    basin_unit_id,
+    basin_unit_label,
+    landscape_unit_id,
+    landscape_unit_label,
+    dplyr::any_of(
+      c(
+        "river_code",
+        "river_name",
+        "river_label"
+      )
+    )
+  )
+
+readr::write_csv(
+  future_data_requirements,
+  file.path(
+    handoff_dir,
+    "future_data_requirements.csv"
+  )
+)
+
+readr::write_csv(
+  future_join_key_dictionary,
+  file.path(
+    handoff_dir,
+    "future_join_key_dictionary.csv"
+  )
+)
+
+readr::write_csv(
+  future_landscape_availability_template,
+  file.path(
+    handoff_dir,
+    "future_landscape_availability_template.csv"
+  )
+)
+
+readr::write_csv(
+  future_place_covariate_template,
+  file.path(
+    handoff_dir,
+    "future_place_covariate_template.csv"
+  )
+)
+
+readr::write_csv(
+  future_phase_environment_model_input,
+  file.path(
+    handoff_dir,
+    "future_phase_environment_model_input.csv"
+  )
+)
+
+readr::write_csv(
+  analysis_scope_policy,
+  file.path(
+    handoff_dir,
+    "analysis_scope_policy.csv"
+  )
+)
+
+print(
+  future_data_requirements
+)
+```
+
+# 16. output-check
+
+**目的**：現在の分析が単独で完結し、次段階へ必要なデータを受け渡せることを確認する。
+
+```{r c16_output_check, eval=TRUE}
+expected_csv <- c(
+  "phase_table.csv",
+  "phase_pair_table.csv",
+  "analysis_scope_policy.csv",
+  "analysis_population_summary.csv",
+  "analysis_metadata.csv",
+  "geography_completeness.csv",
+  "geo_unit_dictionary.csv",
+  "landform_code_dictionary.csv",
+  "arch_geo_place_phase_long.csv",
+  "arch_geo_phase_presence_total.csv",
+  "phase_landform_profile.csv",
+  "phase_watersystem_profile.csv",
+  "phase_unit_basin_profile.csv",
+  "phase_landscape_profile.csv",
+  "phase_geography_profile_all.csv",
+  "phase_geography_breadth.csv",
+  "geo_archaeological_sample_baseline.csv",
+  "phase_relative_archaeological_concentration.csv",
+  "adjacent_phase_composition_distance.csv",
+  "all_phase_composition_distance.csv",
+  "ca_phase_coordinates.csv",
+  "ca_landform_coordinates.csv",
+  "ca_inertia.csv",
+  "landscape_phase_counts.csv",
+  "landscape_unit_trajectory.csv",
+  "landscape_unit_temporal_composition.csv",
+  "place_phase_transition_long.csv",
+  "active_transition_long.csv",
+  "transition_by_landform.csv",
+  "transition_by_watersystem.csv",
+  "transition_by_unit_basin.csv",
+  "transition_by_landscape.csv",
+  "transition_geography_all.csv",
+  "transition_retention_by_geography.csv",
+  "activity_domain_availability.csv",
+  "activity_domain_geo_summary.csv",
+  "gpkg_write_status.csv"
+)
+
+expected_figures <- c(
+  "figure_phase_landform_composition.png",
+  "figure_phase_landform_relative_concentration.png",
+  "figure_phase_watersystem_composition.png",
+  "figure_adjacent_phase_geography_distance.png",
+  "figure_phase_landform_correspondence_analysis.png",
+  "figure_transition_landform_relative_pattern.png",
+  "figure_landscape_unit_trajectory.png"
+)
+
+expected_handoff <- c(
+  "future_data_requirements.csv",
+  "future_join_key_dictionary.csv",
+  "future_landscape_availability_template.csv",
+  "future_place_covariate_template.csv",
+  "future_phase_environment_model_input.csv",
+  "analysis_scope_policy.csv"
+)
+
+output_check <- dplyr::bind_rows(
+  tibble::tibble(
+    output_type = "csv",
+    output_name =
+      expected_csv,
+    output_path =
+      file.path(
+        csv_dir,
+        expected_csv
+      )
+  ),
+  tibble::tibble(
+    output_type = "figure",
+    output_name =
+      expected_figures,
+    output_path =
+      file.path(
+        figure_dir,
+        expected_figures
+      )
+  ),
+  tibble::tibble(
+    output_type = "handoff",
+    output_name =
+      expected_handoff,
+    output_path =
+      file.path(
+        handoff_dir,
+        expected_handoff
+      )
+  ),
+  tibble::tibble(
+    output_type = "gpkg",
+    output_name =
+      basename(
+        arch_geo_gpkg
+      ),
+    output_path =
+      arch_geo_gpkg
+  )
+) |>
+  dplyr::mutate(
+    exists =
+      file.exists(
+        output_path
+      ),
+    size_bytes = dplyr::if_else(
+      exists,
+      as.numeric(
+        file.info(
+          output_path
+        )$size
+      ),
+      NA_real_
+    ),
+    note = dplyr::case_when(
+      !exists ~
+        "missing",
+      size_bytes <= 0 ~
+        "empty",
+      TRUE ~
+        "ok"
+    )
+  )
+
+readr::write_csv(
+  output_check,
+  file.path(
+    results_dir,
+    "output_check.csv"
+  )
+)
+
+if (
+  any(
+    !output_check$exists |
+      output_check$note != "ok"
+  )
+) {
+  warning(
+    "一部の期待出力がありません。output_check.csvを確認してください。"
+  )
+}
+
+cat(
+  "\nAnalysis version: ",
+  analysis_version,
+  "\nInput: ",
+  input_csv,
+  "\nAnalysis places: ",
+  nrow(
+    analysis_places
+  ),
+  "\nSelection inference allowed: FALSE",
+  "\nActivity-domain flags available: ",
+  activity_phase_flags_available,
+  "\nResults directory: ",
+  results_dir,
+  "\n",
+  sep = ""
+)
+
+print(
+  output_check
+)
+```
+
+# 17. interpretation-guide
+
+このRmdの出力は、次の順序で解釈する。
+
+1. `phase_landform_profile.csv` / `phase_watersystem_profile.csv`  
+   → 各時代の**観測された遺跡立地構成**。主な地形分析単位は`gsi_landform_class`で、raw `gsi_landform_code`との対応は`landform_code_dictionary.csv`に保持する。
+
+2. `phase_relative_archaeological_concentration.csv`  
+   → 各時代の構成が、分析遺跡地点全体の構成からどちら向きにずれるか。  
+   **環境選好ではない**。
+
+3. `adjacent_phase_composition_distance.csv`  
+   → 地点の入れ替わりとは別に、**立地環境の構成そのものがどの画期で変わったか**。
+
+4. `landscape_unit_trajectory.csv`  
+   → `watersystem × unit basin × landform`という景観単位における**遺跡記録の継続・中断・再出現**。
+
+5. `transition_geography_all.csv`  
+   → `continue / drop / new`が、各画期のactive transition全体に比べてどの地形・流域に相対的に偏るか。
+
+6. `handoff/`  
+   → 地形面積、W07 polygon、河川line、DEM、調査強度を追加した次段階の**selection model / landscape availability model**への引き継ぎ。
+
+## 現段階で言ってよいこと
+
+- 「古墳時代の観測遺跡では台地・段丘の構成比が高い」
+- 「Ko→Naで地形構成のJensen-Shannon divergenceが大きい」
+- 「特定のwatersystem × basin × landform unitで遺跡記録が複数時代に継続する」
+- 「newがactive transition全体と比べて特定地形に相対的に多い」
+
+## 現段階では言わないこと
+
+- 「古墳時代人は台地を選好した」
+- 「低地を回避した」
+- 「単位流域Aの台地が最も好適だった」
+
+これらには、地形・流域ごとのavailable areaまたは利用可能地点を分母として追加する必要がある。
