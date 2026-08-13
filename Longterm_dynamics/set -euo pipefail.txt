@@ -1,0 +1,14 @@
+set -euo pipefail
+
+python build_landform_availability.py \
+  --study-area 13Tokyo.gpkg \
+  --study-area-layer tokyo_mainland \
+  --basins W07_Tokyo.gpkg W07_Tokyo.gpkg \
+  --basin-layers  W07_5338 W07_5339 \
+  --watersystem-field W07_002 \
+  --unit-basin-field W07_006 \
+  --resolution 10 \
+  --zoom 14 \
+  --target-crs EPSG:6677 \
+  --request-delay 0.20 \
+  --output-dir ArchGeo_landform_availability

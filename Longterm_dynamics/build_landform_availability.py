@@ -32,6 +32,13 @@ The script does NOT infer a study area from archaeological site points.
 Supply an explicit study-area polygon. This avoids conditioning availability
 on the observed archaeological distribution.
 
+v1.1.1 geometry fix
+-------------------
+Invalid GSI polygons repaired by Shapely may become GeometryCollection objects.
+Polygon components are now recursively extracted and retained before
+reprojection, clipping, and rasterization. This prevents the polygon loss
+observed in v1.1.0.
+
 Official GSI source:
   Natural landform GeoJSON XYZ template:
   https://cyberjapandata.gsi.go.jp/xyz/experimental_landformclassification1/{z}/{x}/{y}.geojson
@@ -72,7 +79,7 @@ from shapely.geometry import box, shape
 from shapely.ops import transform as shapely_transform
 
 
-SCRIPT_VERSION = "1.0.0"
+SCRIPT_VERSION = "1.1.1"
 
 DEFAULT_TILE_URL = (
     "https://cyberjapandata.gsi.go.jp/xyz/"
@@ -245,6 +252,105 @@ def load_code_crosswalk(path: Optional[Path]) -> Tuple[Dict[str, Tuple[int, str]
     return mapping, df
 
 
+
+def extract_polygonal(geom):
+    """
+    Return only Polygon / MultiPolygon components from a geometry.
+
+    Why this is necessary
+    ---------------------
+    GSI landform GeoJSON features can be invalid. Shapely make_valid() may
+    repair an invalid Polygon into a GeometryCollection containing both
+    Polygon and LineString components. The previous v1.1.0 implementation
+    rejected every non-Polygon/MultiPolygon result after make_valid(), which
+    could therefore discard a valid polygonal component and create large
+    NoData holes in the 10 m landform raster.
+
+    This function:
+      1. runs make_valid(),
+      2. recursively extracts Polygon components from GeometryCollection,
+      3. flattens MultiPolygon,
+      4. drops pure line/point components, and
+      5. unions the recovered polygon parts.
+
+    Returns None when no polygonal component exists.
+    """
+    if geom is None:
+        return None
+
+    try:
+        if geom.is_empty:
+            return None
+    except Exception:
+        return None
+
+    valid = make_valid(geom)
+
+    polygon_parts = []
+
+    def collect(g):
+        if g is None or g.is_empty:
+            return
+
+        gtype = g.geom_type
+
+        if gtype == "Polygon":
+            polygon_parts.append(g)
+            return
+
+        if gtype == "MultiPolygon":
+            for part in g.geoms:
+                if part is not None and not part.is_empty:
+                    polygon_parts.append(part)
+            return
+
+        if gtype == "GeometryCollection":
+            for part in g.geoms:
+                collect(part)
+            return
+
+        # LineString / MultiLineString / Point / MultiPoint are intentionally
+        # ignored because availability is area-based.
+
+    collect(valid)
+
+    if not polygon_parts:
+        return None
+
+    result = union_all(polygon_parts)
+
+    if result is None or result.is_empty:
+        return None
+
+    # union_all() of polygon parts should be polygonal. Guard once more in
+    # case a GEOS repair creates a collection on an unusual geometry.
+    if result.geom_type in ("Polygon", "MultiPolygon"):
+        return result
+
+    recovered = []
+
+    def collect_result(g):
+        if g is None or g.is_empty:
+            return
+        if g.geom_type == "Polygon":
+            recovered.append(g)
+        elif g.geom_type == "MultiPolygon":
+            recovered.extend(
+                part for part in g.geoms
+                if part is not None and not part.is_empty
+            )
+        elif g.geom_type == "GeometryCollection":
+            for part in g.geoms:
+                collect_result(part)
+
+    collect_result(result)
+
+    if not recovered:
+        return None
+
+    result2 = union_all(recovered)
+    return None if result2 is None or result2.is_empty else result2
+
 def read_vector(path: Path, layer: Optional[str] = None) -> gpd.GeoDataFrame:
     if layer:
         gdf = gpd.read_file(path, layer=layer)
@@ -263,7 +369,10 @@ def read_vector(path: Path, layer: Optional[str] = None) -> gpd.GeoDataFrame:
 
 
 def dissolve_to_single_geometry(gdf: gpd.GeoDataFrame):
-    return make_valid(union_all(list(gdf.geometry)))
+    geom = extract_polygonal(union_all(list(gdf.geometry)))
+    if geom is None:
+        raise ValueError("Dissolved geometry contains no polygonal area.")
+    return geom
 
 
 def snap_bounds(bounds: Tuple[float, float, float, float], resolution: float):
@@ -609,8 +718,10 @@ def burn_landform_tiles(
 
             # Exact tile footprint in target CRS; clipping prevents seam double-burn.
             tile_poly_target = shapely_transform(tfm.transform, tile_poly_4326)
-            clip_geom = make_valid(tile_poly_target.intersection(study_target_geom))
-            if clip_geom.is_empty:
+            clip_geom = extract_polygonal(
+                tile_poly_target.intersection(study_target_geom)
+            )
+            if clip_geom is None:
                 continue
 
             shapes_to_burn: List[Tuple[object, int]] = []
@@ -628,16 +739,28 @@ def burn_landform_tiles(
                     tile_unmapped[code if code else "<MISSING>"] += 1
                     continue
 
-                geom = make_valid(shape(geom_json))
-                if geom.is_empty:
-                    continue
-                if geom.geom_type not in ("Polygon", "MultiPolygon"):
+                # IMPORTANT:
+                # make_valid() may turn an invalid Polygon into a
+                # GeometryCollection(Polygon, LineString, ...).  Keep the
+                # polygonal components instead of discarding the whole feature.
+                geom_source = extract_polygonal(shape(geom_json))
+                if geom_source is None:
                     nonpolygon_count += 1
                     continue
 
-                geom_target = make_valid(shapely_transform(tfm.transform, geom))
-                geom_target = make_valid(geom_target.intersection(clip_geom))
-                if geom_target.is_empty:
+                geom_target = extract_polygonal(
+                    shapely_transform(tfm.transform, geom_source)
+                )
+                if geom_target is None:
+                    nonpolygon_count += 1
+                    continue
+
+                geom_target = extract_polygonal(
+                    geom_target.intersection(clip_geom)
+                )
+                if geom_target is None:
+                    # Feature is polygonal but has no area inside this tile /
+                    # study-area clip. This is not counted as a nonpolygon.
                     continue
 
                 class_id, _ = code_map[code]
@@ -738,8 +861,9 @@ def clean_code_series(series: pd.Series, width: Optional[int]) -> pd.Series:
 
 
 def prepare_basins(
-    basin_path: Path,
+    basin_paths: Sequence[Path],
     basin_layer: Optional[str],
+    basin_layers: Optional[Sequence[Optional[str]]],
     study_area: gpd.GeoDataFrame,
     target_crs: str,
     watersystem_field: str,
@@ -748,15 +872,69 @@ def prepare_basins(
     watersystem_width: Optional[int],
     unit_basin_width: Optional[int],
 ) -> gpd.GeoDataFrame:
-    basins = read_vector(basin_path, basin_layer)
-    if watersystem_field not in basins.columns:
-        raise KeyError(f"Missing basin field: {watersystem_field}")
-    if unit_basin_field not in basins.columns:
-        raise KeyError(f"Missing basin field: {unit_basin_field}")
-    if watersystem_name_field and watersystem_name_field not in basins.columns:
-        raise KeyError(f"Missing basin name field: {watersystem_name_field}")
+    """
+    Read one or more W07 watershed-mesh vector files, concatenate them,
+    clip to the explicit study area, and dissolve across file boundaries by
+    watersystem_code × unit_basin_code.
 
-    basins = basins.to_crs(target_crs).copy()
+    Typical Tokyo input:
+        W07_5338.gpkg + W07_5339.gpkg
+
+    The source files remain separate on disk; only the in-memory analysis
+    layer is merged. Provenance is retained in source_files,
+    source_file_count, and source_input_feature_n.
+    """
+    basin_paths = [Path(p) for p in basin_paths]
+    if not basin_paths:
+        raise ValueError("At least one --basins input is required.")
+
+    if basin_layers is not None:
+        if basin_layer is not None:
+            raise ValueError("Use either --basin-layer or --basin-layers, not both.")
+        if len(basin_layers) != len(basin_paths):
+            raise ValueError(
+                "--basin-layers must contain exactly one layer name per --basins file."
+            )
+        layer_list = list(basin_layers)
+    else:
+        layer_list = [basin_layer] * len(basin_paths)
+
+    parts: List[gpd.GeoDataFrame] = []
+
+    for basin_path, layer_name in zip(basin_paths, layer_list):
+        print(
+            f"[basin] reading: {basin_path}"
+            + (f" | layer={layer_name}" if layer_name else "")
+        )
+        part = read_vector(basin_path, layer_name)
+
+        if watersystem_field not in part.columns:
+            raise KeyError(
+                f"Missing basin field {watersystem_field!r} in {basin_path}"
+            )
+        if unit_basin_field not in part.columns:
+            raise KeyError(
+                f"Missing basin field {unit_basin_field!r} in {basin_path}"
+            )
+        if watersystem_name_field and watersystem_name_field not in part.columns:
+            raise KeyError(
+                f"Missing basin name field {watersystem_name_field!r} in {basin_path}"
+            )
+
+        # Reproject each input separately before concatenation so inputs with
+        # different valid CRSs can still be combined safely.
+        part = part.to_crs(target_crs).copy()
+        part["_source_file"] = basin_path.name
+        part["_source_path"] = str(basin_path)
+        part["_source_layer"] = layer_name or ""
+        parts.append(part)
+
+    basins = gpd.GeoDataFrame(
+        pd.concat(parts, ignore_index=True, sort=False),
+        geometry="geometry",
+        crs=target_crs,
+    )
+
     study_target = study_area.to_crs(target_crs)
     study_geom = dissolve_to_single_geometry(study_target)
 
@@ -778,25 +956,65 @@ def prepare_basins(
         basins["watersystem_code"].ne("") & basins["unit_basin_code"].ne("")
     ].copy()
 
-    # Clip with the explicit study area.
+    # Clip every W07 mesh feature to the explicit study area.
+    # Keep only polygonal components if a repair/intersection creates a
+    # GeometryCollection.
     basins.geometry = basins.geometry.map(
-        lambda g: make_valid(g.intersection(study_geom))
+        lambda g: extract_polygonal(g.intersection(study_geom))
     )
-    basins = basins[~basins.geometry.is_empty].copy()
+    basins = basins[
+        basins.geometry.notna() & ~basins.geometry.is_empty
+    ].copy()
 
-    # Dissolve multipart W07 records to one row per analysis basin.
-    agg = {"watersystem_name": "first"}
-    basins = basins.dissolve(
-        by=["watersystem_code", "unit_basin_code"],
-        as_index=False,
-        aggfunc=agg,
+    if basins.empty:
+        raise ValueError(
+            "No W07 basin-mesh features intersect the study area after clipping."
+        )
+
+    group_cols = ["watersystem_code", "unit_basin_code"]
+
+    # Provenance before dissolve. This also lets one basin span 5338/5339
+    # without losing information about which source mesh files contributed.
+    def join_unique(values: pd.Series) -> str:
+        vals = sorted({str(v) for v in values if pd.notna(v) and str(v) != ""})
+        return "|".join(vals)
+
+    provenance = (
+        basins.groupby(group_cols, as_index=False)
+        .agg(
+            watersystem_name=("watersystem_name", "first"),
+            source_files=("_source_file", join_unique),
+            source_paths=("_source_path", join_unique),
+            source_layers=("_source_layer", join_unique),
+            source_input_feature_n=("_source_file", "size"),
+        )
     )
-    basins.geometry = basins.geometry.map(make_valid)
-    basins = basins[~basins.geometry.is_empty].copy()
+    provenance["source_file_count"] = provenance["source_files"].map(
+        lambda s: 0 if not s else len(s.split("|"))
+    )
+
+    # Dissolve W07 mesh cells across BOTH within-file and 5338/5339 boundaries.
+    geom_only = basins[group_cols + ["geometry"]].copy()
+    dissolved = geom_only.dissolve(
+        by=group_cols,
+        as_index=False,
+    )
+    dissolved.geometry = dissolved.geometry.map(extract_polygonal)
+    dissolved = dissolved[
+        dissolved.geometry.notna() & ~dissolved.geometry.is_empty
+    ].copy()
+
+    basins = dissolved.merge(
+        provenance,
+        on=group_cols,
+        how="left",
+        validate="one_to_one",
+    )
 
     basins = basins.sort_values(
         ["watersystem_code", "unit_basin_code"], kind="stable"
     ).reset_index(drop=True)
+
     basins["basin_id"] = np.arange(1, len(basins) + 1, dtype=np.int32)
     basins["basin_unit_id"] = (
         "B_"
@@ -808,6 +1026,11 @@ def prepare_basins(
 
     if len(basins) >= 65535:
         raise ValueError("Too many basins for uint16 basin raster.")
+
+    print(
+        f"[basin] merged {len(basin_paths)} source file(s) -> "
+        f"{len(basins)} dissolved basin unit(s)"
+    )
 
     return basins
 
@@ -1081,8 +1304,12 @@ def write_geopackage(
         "unit_basin_code",
         "basin_unit_id",
         "source_vector_area_m2",
+        "source_files",
+        "source_file_count",
+        "source_input_feature_n",
         "geometry",
     ]
+    basin_cols = [c for c in basin_cols if c in basins.columns]
     basins[basin_cols].to_file(
         gpkg_path,
         layer="unit_basin_source_clipped",
@@ -1135,9 +1362,30 @@ def parse_args():
                    help="Explicit study-area polygon (GPKG/Shapefile/GeoJSON).")
     p.add_argument("--study-area-layer", default=None)
 
-    p.add_argument("--basins", required=True, type=Path,
-                   help="W07 unit-basin polygon dataset.")
-    p.add_argument("--basin-layer", default=None)
+    p.add_argument(
+        "--basins",
+        required=True,
+        type=Path,
+        nargs="+",
+        help=(
+            "One or more W07 watershed-mesh vector files. "
+            "Example: --basins W07_5338.gpkg W07_5339.gpkg"
+        ),
+    )
+    p.add_argument(
+        "--basin-layer",
+        default=None,
+        help="One common layer name applied to every --basins file.",
+    )
+    p.add_argument(
+        "--basin-layers",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional per-file layer names in the same order as --basins. "
+            "Use only when the input GeoPackages have different layer names."
+        ),
+    )
 
     p.add_argument("--watersystem-field", default="W07_002")
     p.add_argument("--unit-basin-field", default="W07_006")
@@ -1194,6 +1442,12 @@ def main():
         raise ValueError("--resolution must be positive.")
     if args.request_delay < 0:
         raise ValueError("--request-delay must be >= 0.")
+    if args.basin_layer is not None and args.basin_layers is not None:
+        raise ValueError("Use either --basin-layer or --basin-layers, not both.")
+    if args.basin_layers is not None and len(args.basin_layers) != len(args.basins):
+        raise ValueError(
+            "--basin-layers must contain exactly one layer name per --basins file."
+        )
 
     out = args.output_dir
     if out.exists() and args.overwrite:
@@ -1224,6 +1478,9 @@ def main():
     print(f"raw uint8 size : {raw_landform_bytes / 1024**2:.1f} MiB")
     print(f"GSI zoom       : {args.zoom}")
     print(f"candidate tiles: {len(candidate_tiles):,}")
+    print(f"W07 source files: {len(args.basins)}")
+    for pth in args.basins:
+        print(f"  - {pth}")
 
     if args.dry_run:
         return 0
@@ -1233,8 +1490,9 @@ def main():
     class_lookup.to_csv(class_lookup_path, index=False)
 
     basins = prepare_basins(
-        basin_path=args.basins,
+        basin_paths=args.basins,
         basin_layer=args.basin_layer,
+        basin_layers=args.basin_layers,
         study_area=study,
         target_crs=args.target_crs,
         watersystem_field=args.watersystem_field,
@@ -1403,8 +1661,10 @@ def main():
         "pixel_rule": "center; all_touched=False",
         "study_area_path": str(args.study_area),
         "study_area_layer": args.study_area_layer,
-        "basin_path": str(args.basins),
-        "basin_layer": args.basin_layer,
+        "basin_paths": [str(p) for p in args.basins],
+        "basin_layer_common": args.basin_layer,
+        "basin_layers_per_file": args.basin_layers,
+        "basin_source_file_count": len(args.basins),
         "watersystem_field": args.watersystem_field,
         "unit_basin_field": args.unit_basin_field,
         "candidate_tile_count_bbox": len(candidate_tiles),

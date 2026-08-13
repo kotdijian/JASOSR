@@ -1,0 +1,33 @@
+{
+  "script_version": "1.1.1",
+  "created_at_utc": "2026-08-13T10:16:42+00:00",
+  "gsi_tile_url_template": "https://cyberjapandata.gsi.go.jp/xyz/experimental_landformclassification1/{z}/{x}/{y}.geojson",
+  "gsi_zoom": 14,
+  "target_crs": "EPSG:6677",
+  "resolution_m": 10.0,
+  "pixel_rule": "center; all_touched=False",
+  "study_area_path": "13Tokyo.gpkg",
+  "study_area_layer": "13Tokyo",
+  "basin_paths": [
+    "13Tokyo.gpkg",
+    "13Tokyo.gpkg"
+  ],
+  "basin_layer_common": null,
+  "basin_layers_per_file": [
+    "W07_5338",
+    "W07_5339"
+  ],
+  "basin_source_file_count": 2,
+  "watersystem_field": "W07_002",
+  "unit_basin_field": "W07_006",
+  "candidate_tile_count_bbox": 1035,
+  "grid": {
+    "xmin": -80430.0,
+    "ymin": -55280.0,
+    "xmax": 7750.0,
+    "ymax": -10960.0,
+    "width": 8818,
+    "height": 4432
+  },
+  "selection_inference_note": "Availability is derived from an explicit study area and basin×landform grid cells. Compare only with archaeologically observed records whose landform classification is known, unless a different missing-data policy is explicitly justified."
+}

@@ -1,9 +1,0 @@
-entity,key_or_field,current_available,future_use
-place,place_id / JASID,TRUE,地点別DEM・河川距離・調査強度等のjoin
-place,Lon / Lat,TRUE,spatial overlay
-landform,gsi_landform_code,TRUE,地形面積tableとのjoin
-landform,gsi_landform_class,TRUE,表示・集約
-watersystem,watersystem_code,TRUE,W07 polygonとのjoin
-unit_basin,watersystem_code + unit_basin_code,TRUE,W07単位流域polygonとのjoin
-landscape,landscape_unit_id,TRUE,available-area集計後のlandscape selection tableとのjoin
-phase,phase_code,TRUE,時期別availability/palaeolandscapeとのjoin

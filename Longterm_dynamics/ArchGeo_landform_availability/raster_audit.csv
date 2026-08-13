@@ -1,0 +1,4 @@
+file,width,height,count,dtype,nodata,crs,resolution_x,resolution_y,size_bytes
+landform_availability_10m.tif,8818,4432,1,uint8,0.0,EPSG:6677,10.0,10.0,736777
+unit_basin_10m.tif,8818,4432,1,uint16,0.0,EPSG:6677,10.0,10.0,394580
+landscape_unit_10m.tif,8818,4432,1,int32,0.0,EPSG:6677,10.0,10.0,1124951

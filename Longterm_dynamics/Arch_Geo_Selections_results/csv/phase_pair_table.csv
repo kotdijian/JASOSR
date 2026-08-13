@@ -1,7 +1,0 @@
-from_phase,to_phase,phase_pair_order,phase_pair
-Pa,Jo,1,Pa->Jo
-Jo,Ya,2,Jo->Ya
-Ya,Ko,3,Ya->Ko
-Ko,Na,4,Ko->Na
-Na,He,5,Na->He
-He,Me,6,He->Me

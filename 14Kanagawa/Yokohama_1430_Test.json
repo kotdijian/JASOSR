@@ -1,0 +1,295 @@
+{
+  "success": true,
+  "request_mode": "browser-target",
+  "list_item": {
+    "uid": "1530-1430",
+    "FeatureID": "1530",
+    "lid": "1430",
+    "lnm": "埋蔵文化財包蔵地",
+    "t": "中区NO.32",
+    "ProxyLon": "139.637419365",
+    "ProxyLat": "35.44738061",
+    "center_x": "139.637431989222",
+    "center_y": "35.4471642038014",
+    "distance": "36.4646282373457"
+  },
+  "normalized_record": {
+    "uid": "1530-1430",
+    "FeatureID": "1530",
+    "lid": "1430",
+    "lnm": "埋蔵文化財包蔵地",
+    "t": "中区NO.32",
+    "ProxyLon": "139.637419365",
+    "ProxyLat": "35.44738061",
+    "ProxySource": "JsonThemeAroundPoint:x/y",
+    "center_x": "139.637431989222",
+    "center_y": "35.4471642038014",
+    "distance": "36.4646282373457",
+    "DetailMatched": "1",
+    "DetailAttributeCount": "12",
+    "Detail_uid": "1530-1430",
+    "Detail_lid": "0",
+    "Detail_lnm": "埋蔵文化財包蔵地",
+    "Detail_gmt": "5",
+    "Detail_x": "139.637419365",
+    "Detail_y": "35.44738061",
+    "Detail_t": "中区NO.32",
+    "カテゴリ": "埋蔵文化財包蔵地",
+    "■遺跡番号": "中区NO.32",
+    "所在": "中区",
+    "所在地": "本町六丁目61番1外",
+    "種類": "近代建物跡",
+    "地目": "宅地",
+    "立地": "埋立低地",
+    "規模": "100×140",
+    "時代時期": "近代",
+    "県管理番号": "32",
+    "備考": "",
+    "写真・動画一覧": "[]",
+    "Address": "本町六丁目61番1外",
+    "SiteType": "近代建物跡",
+    "LandCategory": "宅地",
+    "Topography": "埋立低地",
+    "SiteSize": "100×140",
+    "PrefectureSiteNo": "32",
+    "SiteLabel": "中区NO.32"
+  },
+  "attempts": [
+    {
+      "mode": "browser-target",
+      "metadata_matched": true,
+      "detail_item_count": 12,
+      "attribute_count": 12,
+      "attribute_names": [
+        "カテゴリ",
+        "■遺跡番号",
+        "所在",
+        "所在地",
+        "種類",
+        "地目",
+        "立地",
+        "規模",
+        "時代時期",
+        "県管理番号",
+        "備考",
+        "写真・動画一覧"
+      ],
+      "raw_response": {
+        "dtp": "9",
+        "isScrMap": 0,
+        "items": [
+          {
+            "lid": 0,
+            "lnm": "埋蔵文化財包蔵地",
+            "uid": "1530-1430",
+            "gmt": 5,
+            "x": 139.637419365,
+            "y": 35.44738061,
+            "w": 22,
+            "h": 22,
+            "t": "中区NO.32",
+            "sc": "0",
+            "hc": "0",
+            "maxScale": "500",
+            "minScale": "160000",
+            "del_flag": "",
+            "bgi": "https://www2.wagmap.jp/common/getLegendImage/getLegendImage.aspx?lst=5&lex=8&lpx=22&lpy=22&lsz=&lcl=0000FF&exst=0&exsz=2&excl=000000&fmt=png"
+          }
+        ],
+        "item": [
+          {
+            "key": "CATEGORY",
+            "cap": "カテゴリ",
+            "typ": 0,
+            "val": "埋蔵文化財包蔵地",
+            "displaytype": 0
+          },
+          {
+            "key": "NAME",
+            "cap": "■遺跡番号",
+            "typ": 0,
+            "val": "中区NO.32",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD002",
+            "cap": "所在",
+            "typ": 0,
+            "val": "中区",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD003",
+            "cap": "所在地",
+            "typ": 0,
+            "val": "本町六丁目61番1外",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD004",
+            "cap": "種類",
+            "typ": 0,
+            "val": "近代建物跡",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD005",
+            "cap": "地目",
+            "typ": 0,
+            "val": "宅地",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD006",
+            "cap": "立地",
+            "typ": 0,
+            "val": "埋立低地",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD007",
+            "cap": "規模",
+            "typ": 0,
+            "val": "100×140",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD008",
+            "cap": "時代時期",
+            "typ": 0,
+            "val": "近代",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD011",
+            "cap": "県管理番号",
+            "typ": 0,
+            "val": "32",
+            "displaytype": 0
+          },
+          {
+            "key": "FIELD012",
+            "cap": "備考",
+            "typ": 0,
+            "val": "",
+            "displaytype": 0
+          },
+          {
+            "key": "plp",
+            "cap": "写真・動画一覧",
+            "typ": 8,
+            "val": []
+          }
+        ]
+      }
+    }
+  ],
+  "raw_response": {
+    "dtp": "9",
+    "isScrMap": 0,
+    "items": [
+      {
+        "lid": 0,
+        "lnm": "埋蔵文化財包蔵地",
+        "uid": "1530-1430",
+        "gmt": 5,
+        "x": 139.637419365,
+        "y": 35.44738061,
+        "w": 22,
+        "h": 22,
+        "t": "中区NO.32",
+        "sc": "0",
+        "hc": "0",
+        "maxScale": "500",
+        "minScale": "160000",
+        "del_flag": "",
+        "bgi": "https://www2.wagmap.jp/common/getLegendImage/getLegendImage.aspx?lst=5&lex=8&lpx=22&lpy=22&lsz=&lcl=0000FF&exst=0&exsz=2&excl=000000&fmt=png"
+      }
+    ],
+    "item": [
+      {
+        "key": "CATEGORY",
+        "cap": "カテゴリ",
+        "typ": 0,
+        "val": "埋蔵文化財包蔵地",
+        "displaytype": 0
+      },
+      {
+        "key": "NAME",
+        "cap": "■遺跡番号",
+        "typ": 0,
+        "val": "中区NO.32",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD002",
+        "cap": "所在",
+        "typ": 0,
+        "val": "中区",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD003",
+        "cap": "所在地",
+        "typ": 0,
+        "val": "本町六丁目61番1外",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD004",
+        "cap": "種類",
+        "typ": 0,
+        "val": "近代建物跡",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD005",
+        "cap": "地目",
+        "typ": 0,
+        "val": "宅地",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD006",
+        "cap": "立地",
+        "typ": 0,
+        "val": "埋立低地",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD007",
+        "cap": "規模",
+        "typ": 0,
+        "val": "100×140",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD008",
+        "cap": "時代時期",
+        "typ": 0,
+        "val": "近代",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD011",
+        "cap": "県管理番号",
+        "typ": 0,
+        "val": "32",
+        "displaytype": 0
+      },
+      {
+        "key": "FIELD012",
+        "cap": "備考",
+        "typ": 0,
+        "val": "",
+        "displaytype": 0
+      },
+      {
+        "key": "plp",
+        "cap": "写真・動画一覧",
+        "typ": 8,
+        "val": []
+      }
+    ]
+  }
+}

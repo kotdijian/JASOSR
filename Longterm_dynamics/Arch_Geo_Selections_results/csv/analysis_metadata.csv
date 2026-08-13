@@ -1,2 +1,0 @@
-analysis_name,analysis_version,analysis_run_id,analysis_datetime_utc,input_csv,input_md5,phase_codes,n_analysis_places,available_area_used,selection_inference_allowed
-Arch-Geo-Selections,1.0.2,arch_geo_20260811_144958,2026-08-11T05:49:58Z,13Tokyo_chronology_gsi_landform_activity.csv,d60504a9f7cd6a564b723492ca6ce88d,"Pa,Jo,Ya,Ko,Na,He,Me",5624,FALSE,FALSE
