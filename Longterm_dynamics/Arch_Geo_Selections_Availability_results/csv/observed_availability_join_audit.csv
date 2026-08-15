@@ -1,0 +1,8 @@
+phase_code,phase_order,observed_total,observed_joined,observed_unmatched,join_rate,direct_id_match_count,direct_id_match_rate
+Pa,1,691,691,0,1,691,1
+Jo,2,3655,3653,2,0.999452804377565,3653,1
+Ya,3,643,643,0,1,643,1
+Ko,4,1626,1626,0,1,1626,1
+Na,5,1678,1678,0,1,1678,1
+He,6,2126,2126,0,1,2126,1
+Me,7,995,995,0,1,995,1

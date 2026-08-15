@@ -1,0 +1,8 @@
+n_observed,n_basins_conditioned,n_landform_classes,pearson_x2,monte_carlo_p,simulations,phase_code,phase_order,coverage_threshold,selection_model
+659,66,14,108.97183366196795,5e-4,1999,Pa,1,0.95,basin_conditioned
+3390,86,14,477.6408763504758,5e-4,1999,Jo,2,0.95,basin_conditioned
+608,70,14,169.2610725771985,0.006,1999,Ya,3,0.95,basin_conditioned
+1323,77,14,307.33274422237173,5e-4,1999,Ko,4,0.95,basin_conditioned
+1541,77,14,183.0377833654846,5e-4,1999,Na,5,0.95,basin_conditioned
+1959,81,14,193.50224707564703,5e-4,1999,He,6,0.95,basin_conditioned
+883,76,14,163.66706164900518,5e-4,1999,Me,7,0.95,basin_conditioned

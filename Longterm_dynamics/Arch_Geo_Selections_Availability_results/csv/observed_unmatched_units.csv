@@ -1,0 +1,3 @@
+phase_code,phase_order,source_landscape_unit_id,basin_unit_id,gsi_landform_class,observed_count,canonical_landscape_unit_id,available_area_m2,available_share_known,landform_coverage_ratio,direct_id_match,landscape_unit_id
+Jo,2,B_830304_14_LF_CLASS::氾濫平野・海岸平野,B_830304_14,氾濫平野・海岸平野,1,NA,NA,NA,NA,FALSE,NA
+Jo,2,B_830304_86_LF_CLASS::凹地・浅い谷,B_830304_86,凹地・浅い谷,1,NA,NA,NA,NA,FALSE,NA

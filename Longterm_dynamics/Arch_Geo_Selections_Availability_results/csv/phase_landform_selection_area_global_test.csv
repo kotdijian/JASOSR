@@ -1,0 +1,8 @@
+n_observed,n_landform_classes,pearson_x2,monte_carlo_p,simulations,phase_code,phase_order,coverage_threshold,selection_model
+659,14,293.1635335950144,5e-4,1999,Pa,1,0.95,area_based
+3390,14,2219.3781941136035,5e-4,1999,Jo,2,0.95,area_based
+608,14,227.46413292119414,5e-4,1999,Ya,3,0.95,area_based
+1323,14,506.37437581711197,5e-4,1999,Ko,4,0.95,area_based
+1541,14,1121.0564433358347,5e-4,1999,Na,5,0.95,area_based
+1959,14,1652.1038330070337,5e-4,1999,He,6,0.95,area_based
+883,14,497.2511598373245,5e-4,1999,Me,7,0.95,area_based

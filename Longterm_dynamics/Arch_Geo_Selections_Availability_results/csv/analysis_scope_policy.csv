@@ -1,0 +1,23 @@
+item,status,interpretation
+upstream_outputs,read_only,基礎分析GPKGとPython availability GPKGは入力として参照するだけで変更しない。Availability extensionは専用フォルダ・専用GPKGへ出力する。
+availability_join_key,canonical,観測側landscape IDから basin_unit_id と gsi_landform_class を再抽出し、この2項目でavailabilityへjoinする。Python側landscape_unit_idをcanonical IDとして採用する。
+basin_conditioned_loop,fixed_1.0.5,availability CSVの数値列 basin_id とfor-loop変数のdplyr data-mask衝突を回避。loop変数を basin_unit_i とし .data$basin_unit_id を明示する。
+sf_geometry_column,fixed_1.0.6,GeoPackageのactive geometry列名を固定の geometry と仮定しない。sf::select()にgeometry列を明示せずactive geometryを自動保持する。
+coverage_sensitivity_join,fixed_1.0.7,coverage sensitivityでもcanonical_landscape_unit_idが確立した観測のみを使用し、主分析で除外したunmatched recordを再投入しない。
+coverage_stability_definition,fixed_1.0.7,0.90 / 0.95 / 0.99の全thresholdが揃わない地形classはstable判定せず insufficient_threshold_coverage とする。
+threshold_correlation_audit,fixed_1.0.7,threshold pair比較に使用した共通地形class数 n_common_landform_classes を明示する。
+primary_landform_geometry,fixed_1.0.7,primary_landform_availabilityはprimary eligible basin内のlandscape-unit polygonだけを地形class別にdissolveして作成し、属性面積との一致を監査する。
+selection_map_status,fixed_1.0.7,地図上でselection評価済み、当該phase観測なし、coverage不足、landform dataなしを区別して表示する。
+sf_area_geometry_column,fixed_1.0.7,st_area()でgeometry列名を固定参照せずsfオブジェクト全体を渡す。GeoPackageのactive geometry列が geom でも動作する。
+figure_missing_cell_policy,fixed_1.0.7,coverage sensitivityではprimaryにない追加地形classも実名で保持し、activity-domain heatmapの推定対象外セルは灰色で明示する。
+area_based_landform_selection,implemented,primary eligible basin全体の地形面積構成を期待分布とする。流域間偏在＋流域内地形selectionを含む。
+basin_conditioned_landform_selection,primary,各phaseのbasin別地点数を固定し、basin内available landform shareから期待数を作る。地形selectionの主分析。
+landscape_unit_selection,implemented_descriptive,basin-conditioned expectationをwatersystem×unit_basin×landformへ展開。unit単位の多重検定は行わない。
+coverage_primary,implemented,landform_coverage_ratio >= 0.95 のbasinを主分析に使用。
+coverage_sensitivity,implemented,coverage threshold 0.90 / 0.95 / 0.99でselection ratioの安定性を確認。
+missing_gsi_landform,excluded_not_absence,GSI ZL14欠損は地形不存在として扱わない。
+cell_inference,implemented,Monte Carlo empirical p + BH。expected >= 5 を主解釈対象とする。
+activity_domain_selection,optional,activity-domain summaryが存在し、primary eligible範囲でn >= 20 のphase-domainに実施。
+archaeological_behavior_interpretation,caution,selection signalは考古学的記録の偏在。survey effort・preservation・古環境等を完全統制した人間行動選好ではない。
+transition_selection,not_implemented,new/dropはat-risk setが異なるため、availabilityを単純期待分布にしたselection検定は本Rmdでは行わない。
+future_rsf_case_control,handoff_ready,site-level環境共変量とsurvey effortを追加すればRSF / logistic case-controlへ拡張可能。

@@ -50,7 +50,7 @@ QGISでは基礎分析GPKG・availability作成GPKG・本selection GPKGを同一
 
 ```{r c00_setup, message=FALSE, warning=FALSE}
 analysis_name <- "Arch-Geo-Selections Availability"
-analysis_version <- "Availability-1.0.0"
+analysis_version <- "Availability-1.0.7"
 analysis_run_id <- format(
   Sys.time(),
   "%Y%m%dT%H%M%S"
@@ -71,43 +71,197 @@ analysis_datetime_utc <- format(
 arch_geo_results_dir <- "Arch_Geo_Selections_results"
 
 # Python v1.1.1のavailability出力フォルダ
-availability_dir <- "ArchGeo_landform_availability"
+#
+# 通常はPython側の既定値:
+#   ArchGeo_landform_availability
+#
+# ただし、RStudioのworking directoryやPython実行時の--output-dirにより
+# 実際の保存場所が異なる場合があるため、下記の明示値が見つからなければ
+# current working directory直下から必要ファイル一式を自動検出する。
+availability_dir_preferred <- "ArchGeo_landform_availability"
 
 # 出力先
 # 基礎分析 Arch-Geo-Selections とは完全に別フォルダへ出力する。
-results_dir <- "Arch_Geo_Selections_Availability_results"
+#
+# R Markdown / RStudioでchunk間のrelative path解釈が揺れないよう、
+# setup時点のworking directoryを絶対パスとして固定する。
+analysis_working_dir <- normalizePath(
+  getwd(),
+  winslash = "/",
+  mustWork = TRUE
+)
+
+results_dir <- file.path(
+  analysis_working_dir,
+  "Arch_Geo_Selections_Availability_results"
+)
+
 csv_dir <- file.path(
   results_dir,
   "csv"
 )
+
 figure_dir <- file.path(
   results_dir,
   "figure"
 )
+
 gpkg_dir <- file.path(
   results_dir,
   "gpkg"
 )
 
-dir.create(
+ensure_writable_dir <- function(
+  path,
+  label
+) {
+  # 同名の「ファイル」が存在する場合は、dir.create()では解決できない。
+  if (
+    file.exists(
+      path
+    ) &&
+      !dir.exists(
+        path
+      )
+  ) {
+    stop(
+      label,
+      " の出力先と同名のファイルが存在します:\n",
+      path,
+      "\nこのファイルを移動・改名してから再実行してください。"
+    )
+  }
+
+  if (
+    !dir.exists(
+      path
+    )
+  ) {
+    created <- dir.create(
+      path,
+      recursive = TRUE,
+      showWarnings = TRUE
+    )
+
+    if (
+      !isTRUE(
+        created
+      ) &&
+        !dir.exists(
+          path
+        )
+    ) {
+      stop(
+        label,
+        " を作成できません:\n",
+        path,
+        "\nR working directory: ",
+        analysis_working_dir
+      )
+    }
+  }
+
+  # 実際にファイルを作成・削除できるかをテストする。
+  test_file <- file.path(
+    path,
+    paste0(
+      ".write_test_",
+      Sys.getpid(),
+      "_",
+      format(
+        Sys.time(),
+        "%Y%m%d%H%M%S"
+      ),
+      ".tmp"
+    )
+  )
+
+  write_ok <- tryCatch(
+    {
+      con <- file(
+        test_file,
+        open = "wb"
+      )
+      writeBin(
+        charToRaw(
+          "ok"
+        ),
+        con
+      )
+      close(
+        con
+      )
+
+      exists_after_write <- file.exists(
+        test_file
+      )
+
+      if (
+        exists_after_write
+      ) {
+        unlink(
+          test_file
+        )
+      }
+
+      exists_after_write
+    },
+    error = function(e) {
+      FALSE
+    }
+  )
+
+  if (
+    !isTRUE(
+      write_ok
+    )
+  ) {
+    stop(
+      label,
+      " に書き込めません:\n",
+      path,
+      "\nR working directory: ",
+      analysis_working_dir,
+      "\nOneDrive同期・フォルダ権限・同名ファイルの有無を確認してください。"
+    )
+  }
+
+  normalizePath(
+    path,
+    winslash = "/",
+    mustWork = TRUE
+  )
+}
+
+results_dir <- ensure_writable_dir(
   results_dir,
-  recursive = TRUE,
-  showWarnings = FALSE
+  "results_dir"
 )
-dir.create(
+
+csv_dir <- ensure_writable_dir(
   csv_dir,
-  recursive = TRUE,
-  showWarnings = FALSE
+  "csv_dir"
 )
-dir.create(
+
+figure_dir <- ensure_writable_dir(
   figure_dir,
-  recursive = TRUE,
-  showWarnings = FALSE
+  "figure_dir"
 )
-dir.create(
+
+gpkg_dir <- ensure_writable_dir(
   gpkg_dir,
-  recursive = TRUE,
-  showWarnings = FALSE
+  "gpkg_dir"
+)
+
+cat(
+  "Analysis working directory: ",
+  analysis_working_dir,
+  "\nOutput directory: ",
+  results_dir,
+  "\nCSV directory: ",
+  csv_dir,
+  "\n",
+  sep = ""
 )
 
 # coverage policy
@@ -197,6 +351,137 @@ first_existing <- function(
   }
 
   hit[[1]]
+}
+
+detect_availability_dir <- function(
+  preferred_dir = "ArchGeo_landform_availability",
+  search_root = "."
+) {
+  required_primary <- c(
+    "landform_availability_by_basin.csv",
+    "run_metadata.json"
+  )
+
+  gpkg_names <- c(
+    "landscape_units_10m.gpkg",
+    "landscape_units_10m(1).gpkg"
+  )
+
+  is_valid_availability_dir <- function(dir_path) {
+    all(
+      file.exists(
+        file.path(
+          dir_path,
+          required_primary
+        )
+      )
+    ) &&
+      any(
+        file.exists(
+          file.path(
+            dir_path,
+            gpkg_names
+          )
+        )
+      )
+  }
+
+  # 1. 明示した既定フォルダを最優先
+  if (
+    dir.exists(
+      preferred_dir
+    ) &&
+      is_valid_availability_dir(
+        preferred_dir
+      )
+  ) {
+    return(
+      normalizePath(
+        preferred_dir,
+        winslash = "/",
+        mustWork = TRUE
+      )
+    )
+  }
+
+  # 2. working directoryそのものに一式がある場合
+  if (
+    is_valid_availability_dir(
+      search_root
+    )
+  ) {
+    return(
+      normalizePath(
+        search_root,
+        winslash = "/",
+        mustWork = TRUE
+      )
+    )
+  }
+
+  # 3. working directory直下のサブフォルダから一式を検索
+  subdirs <- list.dirs(
+    search_root,
+    full.names = TRUE,
+    recursive = FALSE
+  )
+
+  valid_dirs <- subdirs[
+    vapply(
+      subdirs,
+      is_valid_availability_dir,
+      FUN.VALUE = logical(1)
+    )
+  ]
+
+  if (
+    length(
+      valid_dirs
+    ) == 1
+  ) {
+    return(
+      normalizePath(
+        valid_dirs[[1]],
+        winslash = "/",
+        mustWork = TRUE
+      )
+    )
+  }
+
+  if (
+    length(
+      valid_dirs
+    ) > 1
+  ) {
+    stop(
+      paste0(
+        "availability出力フォルダ候補が複数見つかりました。\n",
+        "availability_dir_preferred を実際のフォルダ名に変更してください。\n候補:\n",
+        paste(
+          valid_dirs,
+          collapse = "\n"
+        )
+      )
+    )
+  }
+
+  stop(
+    paste0(
+      "availability出力一式が見つかりません。\n",
+      "Rのworking directory: ",
+      normalizePath(
+        search_root,
+        winslash = "/",
+        mustWork = TRUE
+      ),
+      "\n必要ファイル:\n",
+      "  landform_availability_by_basin.csv\n",
+      "  run_metadata.json\n",
+      "  landscape_units_10m.gpkg\n",
+      "Python実行時に --output-dir を指定した場合は、\n",
+      "availability_dir_preferred をそのフォルダへ変更してください。"
+    )
+  )
 }
 
 safe_divide <- function(
@@ -581,6 +866,29 @@ simulate_basin_conditioned_selection <- function(
     )
   }
 
+  missing_basin_ids <- setdiff(
+    basin_n$basin_unit_id,
+    unique(
+      availability_unit_df$basin_unit_id
+    )
+  )
+
+  if (
+    length(
+      missing_basin_ids
+    ) > 0
+  ) {
+    stop(
+      paste0(
+        "Observed basinとavailability basinの対応がありません: ",
+        paste(
+          missing_basin_ids,
+          collapse = ", "
+        )
+      )
+    )
+  }
+
   classes <- availability_unit_df |>
     dplyr::filter(
       basin_unit_id %in%
@@ -655,13 +963,18 @@ simulate_basin_conditioned_selection <- function(
   )
 
   for (
-    basin_id in
+    basin_unit_i in
       basin_n$basin_unit_id
   ) {
+    # IMPORTANT:
+    # availability_unit_dfには数値列 basin_id も存在する。
+    # dplyr::filter(basin_unit_id == basin_id) と書くと、
+    # RHSの basin_id がfor-loop変数ではなくdata列として解釈される。
+    # 必ず別名のloop変数を使い、.dataを明示する。
     n_b <- basin_n |>
       dplyr::filter(
-        basin_unit_id ==
-          basin_id
+        .data$basin_unit_id ==
+          basin_unit_i
       ) |>
       dplyr::pull(
         n_observed
@@ -669,13 +982,26 @@ simulate_basin_conditioned_selection <- function(
 
     p_b_df <- availability_unit_df |>
       dplyr::filter(
-        basin_unit_id ==
-          basin_id
+        .data$basin_unit_id ==
+          basin_unit_i
       ) |>
       dplyr::select(
         gsi_landform_class,
         available_share_known
       )
+
+    if (
+      nrow(
+        p_b_df
+      ) == 0
+    ) {
+      stop(
+        paste0(
+          "Observed basinに対応するavailabilityがありません: ",
+          basin_unit_i
+        )
+      )
+    }
 
     p_b <- tibble::tibble(
       gsi_landform_class =
@@ -1005,6 +1331,20 @@ cat(
 - `run_metadata.json`
 
 ```{r c01_input_paths}
+availability_dir <- detect_availability_dir(
+  preferred_dir =
+    availability_dir_preferred,
+  search_root =
+    "."
+)
+
+cat(
+  "Detected availability directory: ",
+  availability_dir,
+  "\n",
+  sep = ""
+)
+
 arch_geo_csv_dir <- file.path(
   arch_geo_results_dir,
   "csv"
@@ -1063,9 +1403,7 @@ if (
   ) > 0
 ) {
   activity_domain_file <-
-    activity_domain_file[
-      [1]
-    ]
+    activity_domain_file[[1]]
 } else {
   activity_domain_file <-
     NA_character_
@@ -1388,6 +1726,19 @@ availability_primary_landform <- availability_primary |>
     )
   )
 
+# setup後にworking directoryが変更された場合でも、
+# csv_dirは絶対パスなので同じ場所へ書き込まれる。
+if (
+  !dir.exists(
+    csv_dir
+  )
+) {
+  csv_dir <- ensure_writable_dir(
+    csv_dir,
+    "csv_dir"
+  )
+}
+
 readr::write_csv(
   availability_global_summary,
   file.path(
@@ -1431,27 +1782,109 @@ print(
 
 # 03. 観測地点とavailabilityのjoin監査
 
-v1.0.2の`landscape_unit_id`とPython v1.1.1の`landscape_unit_id`を直接joinする。
-joinできない地点はselection分析の分子に残さない。
+v1.0.2の`landscape_unit_id`は
+`basin_unit_id + "_LF_CLASS::" + gsi_landform_class`
+として構築されている。
 
+ただし、上流RとPythonで文字列型・空白・ID生成実装が完全一致することを
+暗黙に仮定しない。ここではv1.0.2の`group_id`から
+
+- `basin_unit_id`
+- `gsi_landform_class`
+
+を再抽出し、**この2項目をcanonical join keyとしてavailabilityへ結合する**。
+Python側の`landscape_unit_id`は結合後にcanonical IDとして採用する。
+
+元IDとの完全一致率も監査用に保存する。
+joinできない地点はselection分析の分子に残さない。
 ここで除外されることは「遺跡がない」ことを意味せず、
 availabilityとの対応が確立できないことを意味する。
 
 ```{r c03_observed_join_audit}
+# ------------------------------------------------------------
+# canonical keyの準備
+# ------------------------------------------------------------
+
+availability_key_check <- availability |>
+  dplyr::count(
+    basin_unit_id,
+    gsi_landform_class,
+    name =
+      "n"
+  ) |>
+  dplyr::filter(
+    n > 1
+  )
+
+if (
+  nrow(
+    availability_key_check
+  ) > 0
+) {
+  stop(
+    "availabilityで basin_unit_id × gsi_landform_class が重複しています。",
+    "landform_availability_by_basin.csvを確認してください。"
+  )
+}
+
 observed_unit_phase <- phase_landscape |>
   dplyr::transmute(
     phase_code,
     phase_order,
-    landscape_unit_id,
+    source_landscape_unit_id =
+      stringr::str_squish(
+        as.character(
+          landscape_unit_id
+        )
+      ),
+    basin_unit_id =
+      stringr::str_remove(
+        stringr::str_squish(
+          as.character(
+            landscape_unit_id
+          )
+        ),
+        "_LF_CLASS::.*$"
+      ),
+    gsi_landform_class =
+      stringr::str_squish(
+        stringr::str_remove(
+          as.character(
+            landscape_unit_id
+          ),
+          "^.*_LF_CLASS::"
+        )
+      ),
     observed_count =
       presence_count
+  ) |>
+  dplyr::mutate(
+    basin_unit_id =
+      dplyr::if_else(
+        stringr::str_detect(
+          source_landscape_unit_id,
+          "_LF_CLASS::"
+        ),
+        basin_unit_id,
+        NA_character_
+      ),
+    gsi_landform_class =
+      dplyr::if_else(
+        stringr::str_detect(
+          source_landscape_unit_id,
+          "_LF_CLASS::"
+        ),
+        gsi_landform_class,
+        NA_character_
+      )
   )
 
 observed_unit_joined <- observed_unit_phase |>
   dplyr::left_join(
     availability |>
       dplyr::select(
-        landscape_unit_id,
+        canonical_landscape_unit_id =
+          landscape_unit_id,
         basin_unit_id,
         gsi_landform_class,
         available_area_m2,
@@ -1459,7 +1892,20 @@ observed_unit_joined <- observed_unit_phase |>
         landform_coverage_ratio
       ),
     by =
-      "landscape_unit_id"
+      c(
+        "basin_unit_id",
+        "gsi_landform_class"
+      )
+  ) |>
+  dplyr::mutate(
+    direct_id_match =
+      !is.na(
+        canonical_landscape_unit_id
+      ) &
+        source_landscape_unit_id ==
+          canonical_landscape_unit_id,
+    landscape_unit_id =
+      canonical_landscape_unit_id
   )
 
 observed_availability_join_audit <- observed_unit_joined |>
@@ -1476,7 +1922,7 @@ observed_availability_join_audit <- observed_unit_joined |>
       sum(
         observed_count[
           !is.na(
-            basin_unit_id
+            canonical_landscape_unit_id
           )
         ]
       ),
@@ -1488,6 +1934,19 @@ observed_availability_join_audit <- observed_unit_joined |>
         observed_joined,
         observed_total
       ),
+    direct_id_match_count =
+      sum(
+        observed_count[
+          direct_id_match
+        ],
+        na.rm =
+          TRUE
+      ),
+    direct_id_match_rate =
+      safe_divide(
+        direct_id_match_count,
+        observed_joined
+      ),
     .groups =
       "drop"
   ) |>
@@ -1498,7 +1957,7 @@ observed_availability_join_audit <- observed_unit_joined |>
 observed_unmatched_units <- observed_unit_joined |>
   dplyr::filter(
     is.na(
-      basin_unit_id
+      canonical_landscape_unit_id
     )
   ) |>
   dplyr::arrange(
@@ -1583,6 +2042,76 @@ print(
 print(
   coverage_population_by_phase
 )
+
+# ------------------------------------------------------------
+# selectionへ進む前の停止条件
+# ------------------------------------------------------------
+
+if (
+  sum(
+    observed_availability_join_audit$observed_joined,
+    na.rm =
+      TRUE
+  ) <= 0
+) {
+  stop(
+    paste0(
+      "観測側とavailability側で一致するlandscape unitがありません。\n",
+      "observed_unmatched_units.csvを確認してください。"
+    )
+  )
+}
+
+if (
+  length(
+    primary_eligible_basins
+  ) == 0
+) {
+  stop(
+    paste0(
+      "coverage >= ",
+      primary_coverage_threshold,
+      " のeligible basinがありません。"
+    )
+  )
+}
+
+primary_observed_n <- observed_unit_joined |>
+  dplyr::filter(
+    !is.na(
+      canonical_landscape_unit_id
+    ),
+    basin_unit_id %in%
+      primary_eligible_basins
+  ) |>
+  dplyr::summarise(
+    n =
+      sum(
+        observed_count
+      )
+  ) |>
+  dplyr::pull(
+    n
+  )
+
+if (
+  length(
+    primary_observed_n
+  ) == 0 ||
+    is.na(
+      primary_observed_n
+    ) ||
+    primary_observed_n <= 0
+) {
+  stop(
+    paste0(
+      "primary coverage threshold = ",
+      primary_coverage_threshold,
+      " の範囲に観測地点がありません。\n",
+      "coverage_population_by_phase.csvを確認してください。"
+    )
+  )
+}
 ```
 
 # 04. Area-based landform selection
@@ -1604,7 +2133,7 @@ Monte Carlo multinomial simulationでglobalな適合度と
 observed_primary <- observed_unit_joined |>
   dplyr::filter(
     !is.na(
-      basin_unit_id
+      canonical_landscape_unit_id
     ),
     basin_unit_id %in%
       primary_eligible_basins
@@ -1688,7 +2217,26 @@ area_selection_results <- purrr::map(
 phase_landform_selection_area <- purrr::map_dfr(
   area_selection_results,
   "cell"
-) |>
+)
+
+if (
+  nrow(
+    phase_landform_selection_area
+  ) == 0 ||
+    !"pearson_residual" %in%
+      names(
+        phase_landform_selection_area
+      )
+) {
+  stop(
+    paste0(
+      "Area-based selection結果が空です。\n",
+      "observed_availability_join_audit.csv と coverage_population_by_phase.csv を確認してください。"
+    )
+  )
+}
+
+phase_landform_selection_area <- phase_landform_selection_area |>
   dplyr::left_join(
     availability_primary_landform,
     by =
@@ -1833,15 +2381,35 @@ basin_conditioned_results <- purrr::map(
 phase_landform_selection_basin_conditioned <- purrr::map_dfr(
   basin_conditioned_results,
   "cell"
-) |>
-  dplyr::arrange(
-    phase_order,
-    dplyr::desc(
-      abs(
-        pearson_residual
+)
+
+if (
+  nrow(
+    phase_landform_selection_basin_conditioned
+  ) == 0 ||
+    !"pearson_residual" %in%
+      names(
+        phase_landform_selection_basin_conditioned
       )
+) {
+  stop(
+    paste0(
+      "Basin-conditioned selection結果が空です。\n",
+      "coverage_population_by_phase.csvを確認してください。"
     )
   )
+}
+
+phase_landform_selection_basin_conditioned <-
+  phase_landform_selection_basin_conditioned |>
+    dplyr::arrange(
+      phase_order,
+      dplyr::desc(
+        abs(
+          pearson_residual
+        )
+      )
+    )
 
 phase_landform_selection_basin_conditioned_global <- purrr::map_dfr(
   basin_conditioned_results,
@@ -1920,6 +2488,9 @@ build_basin_conditioned_descriptive <- function(
 
   obs_th <- observed_unit_joined |>
     dplyr::filter(
+      !is.na(
+        canonical_landscape_unit_id
+      ),
       !is.na(
         basin_unit_id
       ),
@@ -2101,6 +2672,11 @@ selection_sensitivity_stability <- phase_landform_selection_sensitivity |>
         min_log2_ratio,
     direction_stability =
       dplyr::case_when(
+        n_thresholds <
+          length(
+            sensitivity_coverage_thresholds
+          ) ~
+            "insufficient_threshold_coverage",
         all(
           selection_ratio > 1,
           na.rm = TRUE
@@ -2166,10 +2742,20 @@ threshold_pair_correlation <- tidyr::expand_grid(
             "gsi_landform_class"
           )
       ) |>
+        dplyr::filter(
+          is.finite(
+            log2_a
+          ),
+          is.finite(
+            log2_b
+          )
+        ) |>
         dplyr::group_by(
           phase_code
         ) |>
         dplyr::summarise(
+          n_common_landform_classes =
+            dplyr::n(),
           spearman_rho =
             suppressWarnings(
               stats::cor(
@@ -2200,6 +2786,99 @@ threshold_pair_correlation <- tidyr::expand_grid(
         )
     }
   )
+
+sensitivity_primary_consistency_audit <-
+  phase_landform_selection_sensitivity |>
+    dplyr::filter(
+      abs(
+        coverage_threshold -
+          primary_coverage_threshold
+      ) <
+        1e-12
+    ) |>
+    dplyr::select(
+      phase_code,
+      gsi_landform_class,
+      sensitivity_observed_count =
+        observed_count,
+      sensitivity_expected_count =
+        expected_count,
+      sensitivity_log2_selection_ratio =
+        log2_selection_ratio
+    ) |>
+    dplyr::full_join(
+      phase_landform_selection_basin_conditioned |>
+        dplyr::select(
+          phase_code,
+          gsi_landform_class,
+          primary_observed_count =
+            observed_count,
+          primary_expected_count =
+            expected_count,
+          primary_log2_selection_ratio =
+            log2_selection_ratio
+        ),
+      by =
+        c(
+          "phase_code",
+          "gsi_landform_class"
+        )
+    ) |>
+    dplyr::mutate(
+      observed_diff =
+        sensitivity_observed_count -
+          primary_observed_count,
+      expected_diff =
+        sensitivity_expected_count -
+          primary_expected_count,
+      log2_diff =
+        sensitivity_log2_selection_ratio -
+          primary_log2_selection_ratio,
+      audit_ok =
+        !is.na(
+          observed_diff
+        ) &
+          !is.na(
+            expected_diff
+          ) &
+          !is.na(
+            log2_diff
+          ) &
+          abs(
+            observed_diff
+          ) <
+            1e-10 &
+          abs(
+            expected_diff
+          ) <
+            1e-8 &
+          abs(
+            log2_diff
+          ) <
+            1e-10
+    )
+
+readr::write_csv(
+  sensitivity_primary_consistency_audit,
+  file.path(
+    csv_dir,
+    "sensitivity_primary_consistency_audit.csv"
+  )
+)
+
+if (
+  any(
+    !sensitivity_primary_consistency_audit$audit_ok
+  )
+) {
+  stop(
+    paste0(
+      "coverage sensitivityのprimary threshold結果が",
+      "主分析 basin-conditioned selection と一致しません。\n",
+      "sensitivity_primary_consistency_audit.csvを確認してください。"
+    )
+  )
+}
 
 readr::write_csv(
   phase_landform_selection_sensitivity,
@@ -2511,9 +3190,29 @@ if (
       activity_domain,
       phase_code,
       phase_order,
-      landscape_unit_id =
-        as.character(
-          group_id
+      source_landscape_unit_id =
+        stringr::str_squish(
+          as.character(
+            group_id
+          )
+        ),
+      basin_unit_id =
+        stringr::str_remove(
+          stringr::str_squish(
+            as.character(
+              group_id
+            )
+          ),
+          "_LF_CLASS::.*$"
+        ),
+      gsi_landform_class =
+        stringr::str_squish(
+          stringr::str_remove(
+            as.character(
+              group_id
+            ),
+            "^.*_LF_CLASS::"
+          )
         ),
       observed_count =
         presence_count
@@ -2529,11 +3228,14 @@ if (
           landform_coverage_ratio
         ),
       by =
-        "landscape_unit_id"
+        c(
+          "basin_unit_id",
+          "gsi_landform_class"
+        )
     ) |>
     dplyr::filter(
       !is.na(
-        basin_unit_id
+        landscape_unit_id
       ),
       basin_unit_id %in%
         primary_eligible_basins
@@ -2969,7 +3671,27 @@ ggplot2::ggsave(
 # coverage sensitivity
 # ------------------------------------------------------------
 
+sensitivity_landform_order <- c(
+  landform_order,
+  setdiff(
+    sort(
+      unique(
+        phase_landform_selection_sensitivity$gsi_landform_class
+      )
+    ),
+    landform_order
+  )
+)
+
 sensitivity_plot_df <- phase_landform_selection_sensitivity |>
+  dplyr::filter(
+    !is.na(
+      gsi_landform_class
+    ),
+    nzchar(
+      gsi_landform_class
+    )
+  ) |>
   dplyr::mutate(
     phase_code =
       factor(
@@ -2988,7 +3710,7 @@ sensitivity_plot_df <- phase_landform_selection_sensitivity |>
         gsi_landform_class,
         levels =
           rev(
-            landform_order
+            sensitivity_landform_order
           )
       ),
     plot_log2 =
@@ -3114,21 +3836,84 @@ if (
     activity_domain_landform_selection
   ) > 0
 ) {
-  activity_plot_df <- activity_domain_landform_selection |>
+  activity_axis_levels <- activity_domain_primary_population |>
+    dplyr::filter(
+      n_observed >=
+        min_activity_domain_places
+    ) |>
+    dplyr::arrange(
+      activity_domain,
+      phase_order
+    ) |>
     dplyr::mutate(
       row_label =
         paste(
           activity_domain,
           phase_code,
           sep =
-            " / "
+            "\n"
+        )
+    ) |>
+    dplyr::pull(
+      row_label
+    )
+
+  activity_landform_levels <- c(
+    landform_order,
+    setdiff(
+      sort(
+        unique(
+          activity_domain_landform_selection$gsi_landform_class
+        )
+      ),
+      landform_order
+    )
+  )
+
+  activity_values <- activity_domain_landform_selection |>
+    dplyr::mutate(
+      row_label =
+        paste(
+          activity_domain,
+          phase_code,
+          sep =
+            "\n"
+        )
+    ) |>
+    dplyr::select(
+      row_label,
+      gsi_landform_class,
+      log2_selection_ratio,
+      selection_signal
+    )
+
+  activity_plot_df <- tidyr::expand_grid(
+    row_label =
+      activity_axis_levels,
+    gsi_landform_class =
+      activity_landform_levels
+  ) |>
+    dplyr::left_join(
+      activity_values,
+      by =
+        c(
+          "row_label",
+          "gsi_landform_class"
+        )
+    ) |>
+    dplyr::mutate(
+      row_label =
+        factor(
+          row_label,
+          levels =
+            activity_axis_levels
         ),
       gsi_landform_class =
         factor(
           gsi_landform_class,
           levels =
             rev(
-              landform_order
+              activity_landform_levels
             )
         ),
       plot_log2 =
@@ -3141,8 +3926,11 @@ if (
         ),
       significance_mark =
         dplyr::if_else(
-          selection_signal !=
-            "no_clear_signal",
+          !is.na(
+            selection_signal
+          ) &
+            selection_signal !=
+              "no_clear_signal",
           "●",
           ""
         )
@@ -3176,6 +3964,8 @@ if (
           -map_log2_ratio_limit,
           map_log2_ratio_limit
         ),
+      na.value =
+        "grey90",
       name =
         "log2(O/E)"
     ) +
@@ -3186,7 +3976,7 @@ if (
         paste0(
           "primary eligible範囲で n >= ",
           min_activity_domain_places,
-          " のphase-domainのみ"
+          " のphase-domainのみ。灰色 = 推定対象セルなし"
         ),
       x =
         "Activity domain / phase",
@@ -3198,8 +3988,10 @@ if (
       axis.text.x =
         ggplot2::element_text(
           angle =
-            60,
+            45,
           hjust =
+            1,
+          vjust =
             1
         )
     )
@@ -3277,13 +4069,51 @@ landform_poly <- sf::st_read(
     TRUE
 )
 
+gpkg_geometry_column_audit <- tibble::tibble(
+  layer_name =
+    c(
+      "landscape_unit_polygon",
+      "basin_grid_dissolved",
+      "landform_class_dissolved"
+    ),
+  geometry_column =
+    c(
+      attr(
+        landscape_poly,
+        "sf_column"
+      ),
+      attr(
+        basin_poly,
+        "sf_column"
+      ),
+      attr(
+        landform_poly,
+        "sf_column"
+      )
+    )
+)
+
+readr::write_csv(
+  gpkg_geometry_column_audit,
+  file.path(
+    csv_dir,
+    "gpkg_geometry_column_audit.csv"
+  )
+)
+
+print(
+  gpkg_geometry_column_audit
+)
+
 basin_coverage_sf <- basin_poly |>
+  # sf::select()はactive geometry列を自動保持する。
+  # GeoPackage側のgeometry列名は "geom" なので、
+  # "geometry" という固定列名は指定しない。
   dplyr::select(
     dplyr::any_of(
       c(
         "basin_id",
-        "basin_unit_id",
-        "geometry"
+        "basin_unit_id"
       )
     )
   ) |>
@@ -3293,12 +4123,29 @@ basin_coverage_sf <- basin_poly |>
       "basin_unit_id"
   ) |>
   dplyr::mutate(
+    landform_known_area_m2 =
+      tidyr::replace_na(
+        landform_known_area_m2,
+        0
+      ),
+    landform_coverage_ratio =
+      tidyr::replace_na(
+        landform_coverage_ratio,
+        0
+      ),
     primary_eligible =
-      !is.na(
-        landform_coverage_ratio
-      ) &
-        landform_coverage_ratio >=
-          primary_coverage_threshold
+      landform_coverage_ratio >=
+        primary_coverage_threshold,
+    coverage_status =
+      dplyr::case_when(
+        landform_coverage_ratio <= 0 ~
+          "no_landform_data",
+        landform_coverage_ratio <
+          primary_coverage_threshold ~
+            "insufficient_coverage",
+        TRUE ~
+          "primary_eligible"
+      )
   )
 
 sf::st_write(
@@ -3310,12 +4157,79 @@ sf::st_write(
     TRUE
 )
 
-landform_area_sf <- landform_poly |>
+# primary eligible basin内のlandscape-unit geometryだけから
+# landform class別geometryを再構築する。
+# v1.0.6のように全ZL14範囲のlandform geometryへprimary属性だけを
+# joinしない。
+landform_area_sf <- landscape_poly |>
+  dplyr::filter(
+    basin_unit_id %in%
+      primary_eligible_basins
+  ) |>
+  dplyr::group_by(
+    gsi_landform_class
+  ) |>
+  dplyr::summarise(
+    .groups =
+      "drop"
+  ) |>
   dplyr::left_join(
     availability_primary_landform,
     by =
       "gsi_landform_class"
   )
+
+# GeoPackageのactive geometry列名は "geom" であり、
+# "geometry" という固定名を仮定しない。
+# st_area()にはsfオブジェクト全体を渡す。
+landform_area_sf$geometry_area_m2 <-
+  as.numeric(
+    sf::st_area(
+      landform_area_sf
+    )
+  )
+
+primary_landform_geometry_audit <- landform_area_sf |>
+  dplyr::mutate(
+    geometry_minus_attribute_m2 =
+      geometry_area_m2 -
+        available_area_m2,
+    audit_ok =
+      abs(
+        geometry_minus_attribute_m2
+      ) <=
+        1.0
+  ) |>
+  sf::st_drop_geometry() |>
+  dplyr::select(
+    gsi_landform_class,
+    available_area_m2,
+    geometry_area_m2,
+    geometry_minus_attribute_m2,
+    audit_ok
+  )
+
+readr::write_csv(
+  primary_landform_geometry_audit,
+  file.path(
+    csv_dir,
+    "primary_landform_geometry_audit.csv"
+  )
+)
+
+if (
+  any(
+    !primary_landform_geometry_audit$audit_ok
+  )
+) {
+  stop(
+    paste0(
+      "primary_landform_availabilityのgeometry面積と",
+      "available_area_m2が一致しません。\n",
+      "primary_landform_geometry_audit.csvを確認してください。"
+    )
+  )
+}
 
 sf::st_write(
   landform_area_sf,
@@ -3394,12 +4308,56 @@ print(
 QGIS用GPKGとは別に、全phaseを一度に確認できるfacet mapを出力する。
 
 ```{r c12_map_figure, fig.width=14, fig.height=12}
-selection_map_sf <- landscape_poly |>
+# ------------------------------------------------------------
+# Basin background status
+# ------------------------------------------------------------
+
+basin_map_background <- purrr::map_dfr(
+  phase_levels,
+  function(phase_i) {
+    basin_coverage_sf |>
+      dplyr::mutate(
+        phase_code =
+          phase_i
+      )
+  }
+) |>
+  dplyr::mutate(
+    phase_code =
+      factor(
+        phase_code,
+        levels =
+          phase_levels
+      )
+  )
+
+# ------------------------------------------------------------
+# Primary eligible landscape units
+# 全phaseについてポリゴンを保持し、selection結果がない場合も
+# 「観測地点なし」として地図上に残す。
+# ------------------------------------------------------------
+
+primary_landscape_poly <- landscape_poly |>
+  dplyr::filter(
+    basin_unit_id %in%
+      primary_eligible_basins
+  ) |>
   dplyr::select(
     landscape_unit_id,
-    geometry
-  ) |>
-  dplyr::inner_join(
+    basin_unit_id
+  )
+
+selection_map_sf <- purrr::map_dfr(
+  phase_levels,
+  function(phase_i) {
+    primary_landscape_poly |>
+      dplyr::mutate(
+        phase_code =
+          phase_i
+      )
+  }
+) |>
+  dplyr::left_join(
     landscape_unit_selection |>
       dplyr::select(
         landscape_unit_id,
@@ -3409,7 +4367,10 @@ selection_map_sf <- landscape_poly |>
         expected_count
       ),
     by =
-      "landscape_unit_id"
+      c(
+        "landscape_unit_id",
+        "phase_code"
+      )
   ) |>
   dplyr::mutate(
     phase_code =
@@ -3418,20 +4379,156 @@ selection_map_sf <- landscape_poly |>
         levels =
           phase_levels
       ),
-    plot_log2 =
-      pmax(
-        -map_log2_ratio_limit,
-        pmin(
-          map_log2_ratio_limit,
+    map_status =
+      dplyr::if_else(
+        is.na(
           log2_selection_ratio
-        )
+        ),
+        "no_observed_sites_in_basin",
+        "evaluated"
+      ),
+    plot_log2 =
+      dplyr::if_else(
+        map_status ==
+          "evaluated",
+        pmax(
+          -map_log2_ratio_limit,
+          pmin(
+            map_log2_ratio_limit,
+            log2_selection_ratio
+          )
+        ),
+        NA_real_
       )
   )
 
-p_landscape_selection_map <- ggplot2::ggplot(
-  selection_map_sf
-) +
+selection_map_status_summary <- selection_map_sf
+
+selection_map_status_summary$area_m2 <-
+  as.numeric(
+    sf::st_area(
+      selection_map_status_summary
+    )
+  )
+
+selection_map_status_summary <- selection_map_status_summary |>
+  sf::st_drop_geometry() |>
+  dplyr::group_by(
+    phase_code,
+    map_status
+  ) |>
+  dplyr::summarise(
+    unit_count =
+      dplyr::n(),
+    area_m2 =
+      sum(
+        area_m2,
+        na.rm = TRUE
+      ),
+    .groups =
+      "drop"
+  )
+
+static_basin_status_summary <- basin_coverage_sf |>
+  dplyr::filter(
+    coverage_status !=
+      "primary_eligible"
+  )
+
+static_basin_status_summary$area_m2 <-
+  as.numeric(
+    sf::st_area(
+      static_basin_status_summary
+    )
+  )
+
+static_basin_status_summary <- static_basin_status_summary |>
+  sf::st_drop_geometry() |>
+  dplyr::group_by(
+    coverage_status
+  ) |>
+  dplyr::summarise(
+    basin_count =
+      dplyr::n(),
+    area_m2 =
+      sum(
+        area_m2,
+        na.rm = TRUE
+      ),
+    .groups =
+      "drop"
+  )
+
+readr::write_csv(
+  selection_map_status_summary,
+  file.path(
+    csv_dir,
+    "selection_map_status_summary.csv"
+  )
+)
+
+readr::write_csv(
+  static_basin_status_summary,
+  file.path(
+    csv_dir,
+    "selection_map_static_coverage_status_summary.csv"
+  )
+)
+
+p_landscape_selection_map <- ggplot2::ggplot() +
+  # landform dataなし: 白 + outline
   ggplot2::geom_sf(
+    data =
+      basin_map_background |>
+        dplyr::filter(
+          coverage_status ==
+            "no_landform_data"
+        ),
+    fill =
+      "white",
+    color =
+      "grey70",
+    linewidth =
+      0.08
+  ) +
+  # coverage不足: 濃灰
+  ggplot2::geom_sf(
+    data =
+      basin_map_background |>
+        dplyr::filter(
+          coverage_status ==
+            "insufficient_coverage"
+        ),
+    fill =
+      "grey60",
+    color =
+      NA,
+    linewidth =
+      0
+  ) +
+  # primary eligibleだが、そのphaseに観測地点なし: 薄灰
+  ggplot2::geom_sf(
+    data =
+      selection_map_sf |>
+        dplyr::filter(
+          map_status ==
+            "no_observed_sites_in_basin"
+        ),
+    fill =
+      "grey88",
+    color =
+      NA,
+    linewidth =
+      0
+  ) +
+  # selection評価済み
+  ggplot2::geom_sf(
+    data =
+      selection_map_sf |>
+        dplyr::filter(
+          map_status ==
+            "evaluated"
+        ),
     ggplot2::aes(
       fill =
         plot_log2
@@ -3452,8 +4549,6 @@ p_landscape_selection_map <- ggplot2::ggplot(
         -map_log2_ratio_limit,
         map_log2_ratio_limit
       ),
-    na.value =
-      "grey95",
     name =
       "log2(O/E)"
   ) +
@@ -3462,9 +4557,14 @@ p_landscape_selection_map <- ggplot2::ggplot(
       "Landscape-unit basin-conditioned selection",
     subtitle =
       paste0(
-        "W07 basin × GSI landform; coverage >= ",
+        "W07 basin × GSI landform; primary coverage >= ",
         primary_coverage_threshold,
         "。unitごとの推測統計ではなく記述的表示。"
+      ),
+    caption =
+      paste0(
+        "色付き = selection評価済み; 薄灰 = primary eligibleだが当該phaseに観測地点なし; ",
+        "濃灰 = coverage不足; 白（灰色outline） = landform dataなし。"
       )
   ) +
   ggplot2::theme_void() +
@@ -3473,6 +4573,11 @@ p_landscape_selection_map <- ggplot2::ggplot(
       ggplot2::element_text(
         size =
           11
+      ),
+    plot.caption =
+      ggplot2::element_text(
+        hjust =
+          0
       )
   )
 
@@ -3553,6 +4658,16 @@ analysis_metadata <- tibble::tibble(
 analysis_scope_policy <- tibble::tribble(
   ~item, ~status, ~interpretation,
   "upstream_outputs", "read_only", "基礎分析GPKGとPython availability GPKGは入力として参照するだけで変更しない。Availability extensionは専用フォルダ・専用GPKGへ出力する。",
+  "availability_join_key", "canonical", "観測側landscape IDから basin_unit_id と gsi_landform_class を再抽出し、この2項目でavailabilityへjoinする。Python側landscape_unit_idをcanonical IDとして採用する。",
+  "basin_conditioned_loop", "fixed_1.0.5", "availability CSVの数値列 basin_id とfor-loop変数のdplyr data-mask衝突を回避。loop変数を basin_unit_i とし .data$basin_unit_id を明示する。",
+  "sf_geometry_column", "fixed_1.0.6", "GeoPackageのactive geometry列名を固定の geometry と仮定しない。sf::select()にgeometry列を明示せずactive geometryを自動保持する。",
+  "coverage_sensitivity_join", "fixed_1.0.7", "coverage sensitivityでもcanonical_landscape_unit_idが確立した観測のみを使用し、主分析で除外したunmatched recordを再投入しない。",
+  "coverage_stability_definition", "fixed_1.0.7", "0.90 / 0.95 / 0.99の全thresholdが揃わない地形classはstable判定せず insufficient_threshold_coverage とする。",
+  "threshold_correlation_audit", "fixed_1.0.7", "threshold pair比較に使用した共通地形class数 n_common_landform_classes を明示する。",
+  "primary_landform_geometry", "fixed_1.0.7", "primary_landform_availabilityはprimary eligible basin内のlandscape-unit polygonだけを地形class別にdissolveして作成し、属性面積との一致を監査する。",
+  "selection_map_status", "fixed_1.0.7", "地図上でselection評価済み、当該phase観測なし、coverage不足、landform dataなしを区別して表示する。",
+  "sf_area_geometry_column", "fixed_1.0.7", "st_area()でgeometry列名を固定参照せずsfオブジェクト全体を渡す。GeoPackageのactive geometry列が geom でも動作する。",
+  "figure_missing_cell_policy", "fixed_1.0.7", "coverage sensitivityではprimaryにない追加地形classも実名で保持し、activity-domain heatmapの推定対象外セルは灰色で明示する。",
   "area_based_landform_selection", "implemented", "primary eligible basin全体の地形面積構成を期待分布とする。流域間偏在＋流域内地形selectionを含む。",
   "basin_conditioned_landform_selection", "primary", "各phaseのbasin別地点数を固定し、basin内available landform shareから期待数を作る。地形selectionの主分析。",
   "landscape_unit_selection", "implemented_descriptive", "basin-conditioned expectationをwatersystem×unit_basin×landformへ展開。unit単位の多重検定は行わない。",
@@ -3605,6 +4720,7 @@ expected_csv <- c(
   "phase_landform_selection_coverage_sensitivity.csv",
   "selection_coverage_sensitivity_stability.csv",
   "selection_coverage_threshold_pair_correlation.csv",
+  "sensitivity_primary_consistency_audit.csv",
   "landscape_unit_selection_basin_conditioned.csv",
   "landscape_unit_selection_top30_by_phase.csv",
   "adjacent_phase_landform_selection_change.csv",
@@ -3612,6 +4728,10 @@ expected_csv <- c(
   "activity_domain_landform_selection_basin_conditioned.csv",
   "activity_domain_landform_selection_global_test.csv",
   "selection_gpkg_layer_audit.csv",
+  "gpkg_geometry_column_audit.csv",
+  "primary_landform_geometry_audit.csv",
+  "selection_map_status_summary.csv",
+  "selection_map_static_coverage_status_summary.csv",
   "analysis_metadata.csv",
   "analysis_scope_policy.csv"
 )
@@ -3772,7 +4892,9 @@ print(
 
 6. `landscape_unit_selection_basin_conditioned.csv` / GPKG `selection_*`  
    → selectionが地図上のどの流域×地形unitに現れるか確認する。  
-   unit-levelは小期待件数が多いため記述的表示を主とする。
+   unit-levelは小期待件数が多いため記述的表示を主とする。  
+   地図では、色付き=selection評価済み、薄灰=primary eligibleだが当該phaseに観測地点なし、
+   濃灰=coverage不足、白（灰色outline）=landform dataなし、と区別する。
 
 7. `adjacent_phase_landform_selection_change.csv`  
    → availabilityで標準化したselection signature自体が隣接時代でどの程度変化したか確認する。
